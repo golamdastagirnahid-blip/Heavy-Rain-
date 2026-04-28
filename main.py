@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import random
+import glob
 from datetime import datetime
 
 from src.database            import Database
@@ -44,14 +45,17 @@ def humanize_start():
     wait_seconds = wait_minutes * 60
 
     print(f"⏰ Humanizing start time...")
-    print(f"   Random delay: {wait_minutes} minutes")
     print(
-        f"   Current time: "
+        f"   Random delay  : "
+        f"{wait_minutes} minutes"
+    )
+    print(
+        f"   Current time  : "
         f"{datetime.now().strftime('%H:%M:%S')}"
     )
     print(
-        f"   Will start after: "
-        f"{wait_minutes} minutes"
+        f"   Will start at : "
+        f"{wait_minutes} min from now"
     )
 
     time.sleep(wait_seconds)
@@ -66,12 +70,12 @@ def main():
     print("=" * 60)
     print("🌧️  Heavy Rain Deep Sleep Automation")
     print(
-        f"   Scheduled: "
+        f"   Scheduled : "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     print("=" * 60)
 
-    # Humanize start time
+    # ── Humanize Start Time ──
     # Random delay between 1-90 minutes
     humanize_start()
 
@@ -80,7 +84,7 @@ def main():
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
-    # Initialize all components
+    # ── Initialize Components ──
     db        = Database()
     loader    = AudioLoader()
     footage   = FootageDownloader()
@@ -89,7 +93,7 @@ def main():
     thumb_gen = ThumbnailGenerator()
     auth      = YouTubeAuth()
 
-    # Check daily limit
+    # ── Check Daily Limit ──
     today_count = db.get_today_count()
     print(f"\n📊 Today's uploads: {today_count}/3")
 
@@ -98,7 +102,7 @@ def main():
         print("   Will resume tomorrow")
         return
 
-    # Authenticate YouTube
+    # ── Authenticate YouTube ──
     youtube = auth.authenticate()
     if not youtube:
         print("❌ YouTube authentication failed!")
@@ -106,7 +110,7 @@ def main():
 
     uploader = VideoUploader(youtube)
 
-    # Get random audio from Google Drive folder
+    # ── Load Random Audio ──
     print("\n📥 Loading random audio...")
     audio_path, audio_name = loader.download_random()
     if not audio_path:
@@ -115,7 +119,7 @@ def main():
 
     print(f"   ✅ Using: {audio_name}")
 
-    # Get audio duration
+    # ── Get Audio Duration ──
     print("\n⏱️ Checking audio duration...")
     audio_duration = processor.get_duration(audio_path)
     if audio_duration == 0:
@@ -127,31 +131,35 @@ def main():
         f"{format_duration(audio_duration)}"
     )
 
-    # Calculate parts
-    num_parts = processor.calculate_parts(audio_duration)
-    print(f"   Parts: {num_parts}")
+    # ── Calculate Parts ──
+    num_parts = processor.calculate_parts(
+        audio_duration
+    )
+    print(f"   Parts   : {num_parts}")
 
-    # Get stock footage
+    # ── Get Stock Footage ──
     print("\n🎬 Getting stock footage...")
     footage_path = footage.get_footage()
     if not footage_path:
         print("❌ Footage download failed!")
         sys.exit(1)
 
-    # Generate unique video ID
+    print(f"   ✅ Footage: {footage_path}")
+
+    # ── Generate Unique Video ID ──
     video_id = (
         f"rain_"
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
 
-    # Generate AI metadata
-    print("\n🤖 Generating metadata...")
+    # ── Generate AI Metadata ──
+    print("\n🤖 Generating AI metadata...")
     ai_title, ai_desc = ai.generate_metadata(
         audio_name, None, num_parts
     )
-    print(f"   Title: {ai_title}")
+    print(f"   ✅ Title: {ai_title}")
 
-    # Process and upload each part
+    # ── Process Each Part ──
     success_count = 0
 
     for part_num in range(1, num_parts + 1):
@@ -168,25 +176,34 @@ def main():
         part_duration = end_sec - start_sec
 
         print(
-            f"   ⏱️ "
+            f"   ⏱️  "
             f"{format_duration(start_sec)} → "
             f"{format_duration(end_sec)}"
         )
 
-        # Generate thumbnail
+        # ── Generate Thumbnail ──
         print("\n🖼️ Generating thumbnail...")
         thumb_path = thumb_gen.generate(
             title        = ai_title,
-            part_num     = part_num if num_parts > 1
+            footage_path = footage_path,
+            part_num     = part_num
+                           if num_parts > 1
                            else None,
-            total_parts  = num_parts if num_parts > 1
+            total_parts  = num_parts
+                           if num_parts > 1
                            else None,
-            duration_str = format_duration(part_duration)
+            duration_str = format_duration(
+                part_duration
+            )
         )
 
-        # Create video
+        if not thumb_path:
+            print("   ⚠️ Thumbnail failed - continuing")
+
+        # ── Create Video ──
         print("\n🎥 Creating video...")
         part_output_id = f"{video_id}_part{part_num}"
+
         video_path = processor.create_video(
             audio_path     = audio_path,
             footage_path   = footage_path,
@@ -203,7 +220,9 @@ def main():
             )
             continue
 
-        # Build title and description
+        print(f"   ✅ Video: {video_path}")
+
+        # ── Build Title & Description ──
         if num_parts > 1:
             part_title = (
                 f"{ai_title} "
@@ -217,14 +236,21 @@ def main():
             f"⏱️ Duration: "
             f"{format_duration(part_duration)}\n"
         )
+
         if num_parts > 1:
             part_desc += (
                 f"📌 Part {part_num} "
                 f"of {num_parts}\n"
             )
 
-        # Upload to YouTube
+        # ── Upload to YouTube ──
         print(f"\n📤 Uploading Part {part_num}...")
+        print(
+            f"   Title: {part_title[:60]}..."
+            if len(part_title) > 60
+            else f"   Title: {part_title}"
+        )
+
         result = uploader.upload(
             video_path     = video_path,
             title          = part_title,
@@ -235,7 +261,7 @@ def main():
 
         if result and result.get("success"):
             print(
-                f"   ✅ Part {part_num} uploaded: "
+                f"   ✅ Uploaded: "
                 f"{result['url']}"
             )
             success_count += 1
@@ -244,57 +270,69 @@ def main():
             db.mark_uploaded(
                 f"{part_output_id}",
                 {
-                    "title": part_title,
-                    "url"  : result["url"],
-                    "audio": audio_name,
+                    "title"  : part_title,
+                    "url"    : result["url"],
+                    "audio"  : audio_name,
+                    "part"   : part_num,
+                    "of"     : num_parts,
                 }
             )
         else:
-            print(f"   ❌ Part {part_num} failed")
+            print(f"   ❌ Part {part_num} upload failed")
 
-        # Cleanup video file to save space
+        # ── Cleanup Part Video ──
         if video_path and os.path.exists(video_path):
             try:
                 os.remove(video_path)
-                print("   🗑️ Temp video deleted")
+                print("   🗑️ Part video deleted")
             except Exception:
                 pass
 
-        # Humanized wait between parts
+        # ── Humanized Wait Between Parts ──
         if part_num < num_parts:
             wait = random.randint(60, 300)
             print(
                 f"\n⏳ Waiting "
-                f"{wait // 60}min {wait % 60}sec "
+                f"{wait // 60}m {wait % 60}s "
                 f"before next part..."
             )
             time.sleep(wait)
 
-    # Final cleanup
-    print("\n🧹 Cleaning up...")
-    for path in [audio_path]:
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception:
-                pass
+    # ── Final Cleanup ──
+    print("\n🧹 Final cleanup...")
 
-    # Cleanup footage
-    if footage_path and os.path.exists(footage_path):
+    # Delete audio
+    if audio_path and os.path.exists(audio_path):
         try:
-            os.remove(footage_path)
+            os.remove(audio_path)
+            print("   🗑️ Audio deleted")
         except Exception:
             pass
 
-    # Cleanup thumbnails
-    import glob
+    # Delete footage
+    if footage_path and os.path.exists(footage_path):
+        try:
+            os.remove(footage_path)
+            print("   🗑️ Footage deleted")
+        except Exception:
+            pass
+
+    # Delete thumbnails
     for f in glob.glob("thumbnails/*.jpg"):
         try:
             os.remove(f)
         except Exception:
             pass
+    print("   🗑️ Thumbnails deleted")
 
-    # Summary
+    # Delete temp frames
+    for f in glob.glob("thumbnails/*.png"):
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+
+    # ── Final Summary ──
     print("\n" + "=" * 60)
     print(
         f"✅ Done! "
@@ -302,15 +340,15 @@ def main():
     )
     stats = db.get_statistics()
     print(
-        f"📊 Total uploads: "
-        f"{stats.get('total_uploads', 0)}"
+        f"📊 Total all time : "
+        f"{stats.get('total_uploads', 0)} videos"
     )
     print(
-        f"📅 Today's uploads: "
-        f"{db.get_today_count()}/3"
+        f"📅 Today          : "
+        f"{db.get_today_count()}/3 videos"
     )
     print(
-        f"🕐 Finished at: "
+        f"🕐 Finished at    : "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     print("=" * 60)
