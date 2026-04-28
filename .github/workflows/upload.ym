@@ -99,10 +99,10 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf downloads/audio/  || true
+          rm -rf downloads/audio/   || true
           rm -rf downloads/footage/ || true
-          rm -rf output/           || true
-          rm -rf thumbnails/       || true
-          rm -f  token.json        || true
+          rm -rf output/            || true
+          rm -rf thumbnails/        || true
+          rm -f  token.json         || true
           rm -f  client_secrets.json || true
           echo "✅ Cleanup done"
