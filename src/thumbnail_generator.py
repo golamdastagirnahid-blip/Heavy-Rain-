@@ -1,11 +1,19 @@
 """
 Thumbnail Generator
-Creates YouTube thumbnails for rain sleep videos
+Extracts random frame from stock footage
+Adds professional text overlay
+Looks cinematic and real
 """
 
 import os
 import random
-from PIL import Image, ImageDraw, ImageFont
+import subprocess
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+    ImageFilter
+)
 
 
 THUMB_DIR = os.path.join(
@@ -17,174 +25,414 @@ THUMB_DIR = os.path.join(
 
 os.makedirs(THUMB_DIR, exist_ok=True)
 
-# Rain sleep color schemes
-COLOR_SCHEMES = [
-    {
-        "bg"      : (10,  20,  40),
-        "accent"  : (50,  100, 200),
-        "text"    : (200, 220, 255),
-        "subtext" : (150, 180, 220),
-    },
-    {
-        "bg"      : (5,   15,  30),
-        "accent"  : (30,  80,  160),
-        "text"    : (180, 210, 255),
-        "subtext" : (130, 170, 220),
-    },
-    {
-        "bg"      : (15,  25,  50),
-        "accent"  : (60,  120, 220),
-        "text"    : (220, 235, 255),
-        "subtext" : (160, 190, 230),
-    },
-]
-
 
 class ThumbnailGenerator:
 
     def generate(
         self,
         title,
+        footage_path,
         part_num=None,
         total_parts=None,
         duration_str=""
     ):
-        """Generate thumbnail and return file path"""
+        """
+        Generate thumbnail from real footage frame
+        Adds professional text overlay
+        Returns thumbnail file path
+        """
+        print("   🖼️ Generating thumbnail...")
 
-        output_id   = f"thumb_{part_num or 1}"
         output_path = os.path.join(
-            THUMB_DIR, f"{output_id}.jpg"
+            THUMB_DIR,
+            f"thumb_{part_num or 1}.jpg"
         )
 
-        scheme = random.choice(COLOR_SCHEMES)
+        # Step 1: Get footage duration
+        footage_duration = self._get_duration(
+            footage_path
+        )
 
-        # Create image 1280x720
-        img  = Image.new("RGB", (1280, 720), scheme["bg"])
-        draw = ImageDraw.Draw(img)
-
-        # Draw rain effect (vertical lines)
-        import random as rnd
-        for _ in range(200):
-            x  = rnd.randint(0, 1280)
-            y  = rnd.randint(0, 720)
-            y2 = y + rnd.randint(10, 40)
-            opacity = rnd.randint(30, 100)
-            draw.line(
-                [(x, y), (x + 2, y2)],
-                fill=(
-                    scheme["accent"][0],
-                    scheme["accent"][1],
-                    scheme["accent"][2],
-                ),
-                width=1
+        if footage_duration == 0:
+            print(
+                "   ⚠️ Could not get footage duration"
             )
+            footage_duration = 30
 
-        # Draw gradient overlay at bottom
-        for i in range(200):
-            alpha = int(i * 1.2)
-            draw.rectangle(
-                [(0, 520 + i), (1280, 521 + i)],
-                fill=(
-                    scheme["bg"][0],
-                    scheme["bg"][1],
-                    scheme["bg"][2],
-                )
+        # Step 2: Pick random timestamp
+        # Between 20% and 80% to avoid
+        # black frames at start/end
+        min_time = footage_duration * 0.20
+        max_time = footage_duration * 0.80
+        timestamp = random.uniform(min_time, max_time)
+
+        print(
+            f"   📸 Extracting frame at "
+            f"{timestamp:.1f}s"
+        )
+
+        # Step 3: Extract frame using FFmpeg
+        frame_path = os.path.join(
+            THUMB_DIR,
+            f"frame_{part_num or 1}.jpg"
+        )
+
+        frame = self._extract_frame(
+            footage_path,
+            timestamp,
+            frame_path
+        )
+
+        if not frame:
+            print(
+                "   ⚠️ Frame extraction failed"
+                " - using solid background"
             )
+            frame = self._create_fallback(frame_path)
 
-        # Try to load font
+        # Step 4: Add professional overlay
+        result = self._add_overlay(
+            frame_path   = frame,
+            output_path  = output_path,
+            title        = title,
+            part_num     = part_num,
+            total_parts  = total_parts,
+            duration_str = duration_str
+        )
+
+        if result:
+            print(f"   ✅ Thumbnail ready: {result}")
+            return result
+
+        print("   ❌ Thumbnail generation failed")
+        return None
+
+    def _get_duration(self, file_path):
+        """Get video duration in seconds"""
         try:
-            font_large = ImageFont.truetype(
-                "/usr/share/fonts/truetype/"
-                "dejavu/DejaVuSans-Bold.ttf",
-                72
+            cmd = [
+                "ffprobe",
+                "-v",            "quiet",
+                "-print_format", "json",
+                "-show_format",
+                file_path
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output = True,
+                text           = True,
+                timeout        = 30
             )
-            font_medium = ImageFont.truetype(
-                "/usr/share/fonts/truetype/"
-                "dejavu/DejaVuSans.ttf",
-                40
+            import json
+            data = json.loads(result.stdout)
+            return float(
+                data["format"]["duration"]
             )
-            font_small = ImageFont.truetype(
-                "/usr/share/fonts/truetype/"
-                "dejavu/DejaVuSans.ttf",
-                32
+        except Exception as e:
+            print(f"   ⚠️ Duration error: {e}")
+            return 0
+
+    def _extract_frame(
+        self,
+        footage_path,
+        timestamp,
+        output_path
+    ):
+        """Extract single frame from video"""
+        try:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss",     str(timestamp),
+                "-i",      footage_path,
+                "-vframes","1",
+                "-vf",     "scale=1280:720",
+                "-q:v",    "2",
+                output_path
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output = True,
+                text           = True,
+                timeout        = 30
             )
-        except Exception:
-            font_large  = ImageFont.load_default()
-            font_medium = ImageFont.load_default()
-            font_small  = ImageFont.load_default()
 
-        # Draw rain emoji / icon area
-        draw.ellipse(
-            [(540, 80), (740, 280)],
-            fill=scheme["accent"]
-        )
+            if (
+                result.returncode == 0
+                and os.path.exists(output_path)
+            ):
+                return output_path
 
-        # Draw rain drops in circle
-        for i in range(8):
-            x  = 580 + (i % 4) * 40
-            y  = 120 + (i // 4) * 80
-            draw.ellipse(
-                [(x, y), (x+8, y+20)],
-                fill=scheme["text"]
+            print(
+                f"   ⚠️ FFmpeg frame error: "
+                f"{result.stderr[-100:]}"
+            )
+            return None
+
+        except Exception as e:
+            print(f"   ⚠️ Frame extract error: {e}")
+            return None
+
+    def _create_fallback(self, output_path):
+        """
+        Create dark rain-themed background
+        if frame extraction fails
+        """
+        try:
+            img  = Image.new(
+                "RGB",
+                (1280, 720),
+                (15, 25, 45)
+            )
+            draw = ImageDraw.Draw(img)
+
+            # Draw simple rain lines
+            for _ in range(300):
+                x  = random.randint(0, 1280)
+                y  = random.randint(0, 720)
+                y2 = y + random.randint(15, 50)
+                draw.line(
+                    [(x, y), (x+1, y2)],
+                    fill  = (80, 120, 180),
+                    width = 1
+                )
+
+            img.save(output_path, "JPEG", quality=95)
+            return output_path
+
+        except Exception as e:
+            print(f"   ⚠️ Fallback error: {e}")
+            return None
+
+    def _add_overlay(
+        self,
+        frame_path,
+        output_path,
+        title,
+        part_num=None,
+        total_parts=None,
+        duration_str=""
+    ):
+        """
+        Add professional text overlay to frame
+        Dark gradient at bottom
+        Clean minimal typography
+        """
+        try:
+            # Open the frame
+            img = Image.open(frame_path).convert("RGB")
+            img = img.resize(
+                (1280, 720),
+                Image.LANCZOS
             )
 
-        # Draw title text
-        # Wrap title if too long
-        words     = title.split()
-        lines     = []
-        line      = ""
-        for word in words:
-            if len(line + word) < 28:
-                line += word + " "
-            else:
-                if line:
-                    lines.append(line.strip())
-                line = word + " "
-        if line:
-            lines.append(line.strip())
+            # Create overlay layer
+            overlay = Image.new(
+                "RGBA",
+                (1280, 720),
+                (0, 0, 0, 0)
+            )
+            draw = ImageDraw.Draw(overlay)
 
-        # Draw each line
-        y_start = 320
-        for line in lines[:3]:
+            # ── Dark gradient at bottom ──
+            # Gets darker towards bottom
+            for i in range(380):
+                # Alpha increases towards bottom
+                alpha = int((i / 380) * 210)
+                draw.rectangle(
+                    [
+                        (0,    340 + i),
+                        (1280, 341 + i)
+                    ],
+                    fill=(0, 0, 0, alpha)
+                )
+
+            # ── Dark vignette on sides ──
+            for i in range(200):
+                alpha = int((1 - i/200) * 80)
+                # Left side
+                draw.rectangle(
+                    [(i, 0), (i+1, 720)],
+                    fill=(0, 0, 0, alpha)
+                )
+                # Right side
+                draw.rectangle(
+                    [(1279-i, 0), (1280-i, 720)],
+                    fill=(0, 0, 0, alpha)
+                )
+
+            # Merge overlay with image
+            img = img.convert("RGBA")
+            img = Image.alpha_composite(img, overlay)
+            img = img.convert("RGB")
+
+            draw = ImageDraw.Draw(img)
+
+            # ── Load Fonts ──
+            font_title   = self._get_font(72)
+            font_sub     = self._get_font(36)
+            font_small   = self._get_font(28)
+            font_channel = self._get_font(24)
+
+            # ── Channel Name (top left) ──
             draw.text(
-                (640, y_start),
-                line,
-                font=font_large,
-                fill=scheme["text"],
-                anchor="mm"
+                (40, 35),
+                "🌧️ Heavy Rain Deep Sleep",
+                font = font_channel,
+                fill = (180, 210, 255)
             )
-            y_start += 80
 
-        # Draw duration
-        if duration_str:
+            # ── Blue accent line ──
+            draw.rectangle(
+                [(40, 68), (340, 72)],
+                fill=(70, 130, 220)
+            )
+
+            # ── Title Text ──
+            # Clean and wrap title
+            clean_title = title.replace(
+                "| Part", ""
+            ).strip()
+
+            # Wrap title into max 2 lines
+            words  = clean_title.split()
+            lines  = []
+            line   = ""
+
+            for word in words:
+                test = f"{line} {word}".strip()
+                if len(test) <= 30:
+                    line = test
+                else:
+                    if line:
+                        lines.append(line)
+                    line = word
+
+            if line:
+                lines.append(line)
+
+            lines = lines[:2]  # Max 2 lines
+
+            # Draw title with shadow
+            title_y = 480 if len(lines) > 1 else 510
+
+            for line in lines:
+                # Shadow
+                draw.text(
+                    (44, title_y + 4),
+                    line,
+                    font = font_title,
+                    fill = (0, 0, 0, 180)
+                )
+                # Main text
+                draw.text(
+                    (40, title_y),
+                    line,
+                    font = font_title,
+                    fill = (255, 255, 255)
+                )
+                title_y += 82
+
+            # ── Bottom info bar ──
+            bar_y = 640
+
+            # Duration badge
+            if duration_str:
+                # Badge background
+                draw.rounded_rectangle(
+                    [(40, bar_y), (200, bar_y+42)],
+                    radius = 8,
+                    fill   = (70, 130, 220)
+                )
+                draw.text(
+                    (55, bar_y + 8),
+                    f"⏱ {duration_str}",
+                    font = font_small,
+                    fill = (255, 255, 255)
+                )
+
+            # No Ads badge
+            draw.rounded_rectangle(
+                [(215, bar_y), (330, bar_y+42)],
+                radius = 8,
+                fill   = (40, 160, 80)
+            )
             draw.text(
-                (640, 580),
-                f"⏱ {duration_str}",
-                font=font_medium,
-                fill=scheme["subtext"],
-                anchor="mm"
+                (230, bar_y + 8),
+                "✅ No Ads",
+                font = font_small,
+                fill = (255, 255, 255)
             )
 
-        # Draw part number
-        if part_num and total_parts and total_parts > 1:
+            # Sleep badge
+            draw.rounded_rectangle(
+                [(345, bar_y), (500, bar_y+42)],
+                radius = 8,
+                fill   = (100, 60, 180)
+            )
             draw.text(
-                (640, 630),
-                f"Part {part_num} of {total_parts}",
-                font=font_small,
-                fill=scheme["subtext"],
-                anchor="mm"
+                (360, bar_y + 8),
+                "😴 Deep Sleep",
+                font = font_small,
+                fill = (255, 255, 255)
             )
 
-        # Draw channel watermark
-        draw.text(
-            (640, 680),
-            "🌧️ Heavy Rain Deep Sleep",
-            font=font_small,
-            fill=scheme["subtext"],
-            anchor="mm"
-        )
+            # ── Part number (if multiple parts) ──
+            if (
+                part_num
+                and total_parts
+                and total_parts > 1
+            ):
+                draw.text(
+                    (40, bar_y - 45),
+                    f"Part {part_num} of {total_parts}",
+                    font = font_sub,
+                    fill = (180, 210, 255)
+                )
 
-        # Save
-        img.save(output_path, "JPEG", quality=95)
-        print(f"   ✅ Thumbnail: {output_path}")
-        return output_path
+            # ── Rain emoji accents ──
+            draw.text(
+                (1200, 35),
+                "🌧️",
+                font = self._get_font(48),
+                fill = (255, 255, 255)
+            )
+
+            # Save final thumbnail
+            img.save(
+                output_path,
+                "JPEG",
+                quality = 95
+            )
+
+            return output_path
+
+        except Exception as e:
+            print(f"   ⚠️ Overlay error: {e}")
+            return None
+
+    def _get_font(self, size):
+        """
+        Load font - tries multiple paths
+        Falls back to default if not found
+        """
+        font_paths = [
+            # Ubuntu/Debian
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            # Generic
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ]
+
+        for path in font_paths:
+            if os.path.exists(path):
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+
+        # Fallback to default
+        return ImageFont.load_default()
