@@ -1,7 +1,7 @@
 """
 Audio Loader
 Loads random audio from Google Drive Public Folder
-Uses gdown to handle Google Drive downloads properly
+Uses gdown to handle Google Drive downloads
 """
 
 import os
@@ -52,125 +52,184 @@ class AudioLoader:
         try:
             import gdown
 
-            # Get folder contents using gdown
             folder_url = (
                 f"https://drive.google.com"
                 f"/drive/folders/{self.folder_id}"
             )
 
+            # Get folder contents
+            # Returns list of GoogleDriveFileToDownload
             files = gdown.download_folder(
-                url          = folder_url,
-                skip_download= True,
-                quiet        = False,
+                url           = folder_url,
+                skip_download = True,
+                quiet         = False,
             )
 
             if files:
-                self._files = [
-                    {
-                        "id"  : f.get("id", ""),
-                        "name": f.get("name", "Rain Audio")
-                    }
-                    for f in files
-                    if f.get("id")
+                result = []
+                for f in files:
+                    # Handle new gdown object type
+                    if hasattr(f, 'id') and hasattr(f, 'name'):
+                        result.append({
+                            "id"  : f.id,
+                            "name": f.name
+                        })
+                    elif hasattr(f, '__dict__'):
+                        d = f.__dict__
+                        result.append({
+                            "id"  : d.get('id', ''),
+                            "name": d.get('name', 'Rain Audio')
+                        })
+                    elif isinstance(f, dict):
+                        result.append({
+                            "id"  : f.get('id', ''),
+                            "name": f.get('name', 'Rain Audio')
+                        })
+                    else:
+                        # Try string representation
+                        print(f"   📄 File object: {f}")
+
+                # Filter valid entries
+                result = [
+                    r for r in result
+                    if r.get('id')
                 ]
 
-                print(
-                    f"   ✅ Found "
-                    f"{len(self._files)} files"
-                )
-                return self._files
+                if result:
+                    self._files = result
+                    print(
+                        f"   ✅ Found "
+                        f"{len(result)} files"
+                    )
+                    return result
 
         except Exception as e:
-            print(f"   ⚠️ gdown folder error: {e}")
+            print(f"   ⚠️ gdown error: {e}")
 
-        # Fallback to manual scraping
-        return self._scrape_folder()
+        # Fallback: parse gdown output directly
+        return self._get_files_from_logs()
 
-    def _scrape_folder(self):
+    def _get_files_from_logs(self):
         """
-        Fallback: scrape folder page
-        to find file IDs
+        Fallback: use gdown to list files
+        and parse the output
         """
-        print("   🔄 Trying folder scrape...")
+        print("   🔄 Trying direct gdown listing...")
         try:
-            session  = requests.Session()
+            import gdown
+            import io
+            import sys
+
+            folder_url = (
+                f"https://drive.google.com"
+                f"/drive/folders/{self.folder_id}"
+            )
+
+            # Capture gdown output
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+
+            try:
+                gdown.download_folder(
+                    url           = folder_url,
+                    skip_download = True,
+                    quiet         = False,
+                )
+            except Exception:
+                pass
+            finally:
+                sys.stdout = old_stdout
+
+            output = buffer.getvalue()
+            print(f"   📋 gdown output captured")
+
+            # Parse file IDs from output
+            # Format: "Processing file FILEID filename"
+            pattern = r'Processing file ([\w-]+) (.+)'
+            matches = re.findall(pattern, output)
+
+            if matches:
+                files = [
+                    {
+                        "id"  : m[0],
+                        "name": m[1].strip()
+                    }
+                    for m in matches
+                ]
+                self._files = files
+                print(
+                    f"   ✅ Found "
+                    f"{len(files)} files from logs"
+                )
+                return files
+
+        except Exception as e:
+            print(f"   ⚠️ Log parse error: {e}")
+
+        # Last resort: hardcode from logs
+        return self._get_files_hardcoded()
+
+    def _get_files_hardcoded(self):
+        """
+        Last resort: use file IDs found
+        from previous gdown output in logs
+        """
+        print("   🔄 Using detected file IDs...")
+
+        # These IDs were found from your gdown logs
+        files = [
+            {
+                "id"  : "1wfiuLyY4DAlPfr3gLX6oUm36f5ZHk1lS",
+                "name": "Best Rain in the Forest at Night"
+            }
+        ]
+
+        # Also scan folder page for more IDs
+        try:
             headers  = {
                 "User-Agent": (
                     "Mozilla/5.0 "
-                    "(Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36"
+                    "(Windows NT 10.0; Win64; x64)"
                 )
             }
-
-            # Get folder page
             url      = (
                 f"https://drive.google.com"
                 f"/drive/folders/{self.folder_id}"
             )
-            response = session.get(
+            response = requests.get(
                 url,
                 headers = headers,
                 timeout = 30
             )
 
             if response.status_code == 200:
-                # Find file metadata in JSON
-                # Google embeds file data in page
-                pattern = (
-                    r'\["([\w-]{28,})",'
-                    r'null,null,null,null,'
-                    r'"([^"]+\.'
-                    r'(?:mp3|m4a|wav|ogg|flac|aac))"'
-                    r'\]'
-                )
-                matches = re.findall(
-                    pattern,
-                    response.text,
-                    re.IGNORECASE
+                # Find all 33-char IDs
+                all_ids = re.findall(
+                    r'"([\w-]{33})"',
+                    response.text
                 )
 
-                if matches:
-                    files = [
-                        {"id": m[0], "name": m[1]}
-                        for m in matches
-                    ]
-                    self._files = files
-                    print(
-                        f"   ✅ Found "
-                        f"{len(files)} audio files"
-                    )
-                    return files
+                # Remove folder ID
+                all_ids = list(set([
+                    i for i in all_ids
+                    if i != self.folder_id
+                ]))
 
-                # Try alternative pattern
-                pattern2 = (
-                    r'"([\w-]{28,33})",'
-                    r'"([^"]+\.'
-                    r'(?:mp3|m4a|wav|ogg|flac|aac))"'
-                )
-                matches2 = re.findall(
-                    pattern2,
-                    response.text,
-                    re.IGNORECASE
-                )
-
-                if matches2:
-                    files = [
-                        {"id": m[0], "name": m[1]}
-                        for m in matches2
-                    ]
-                    self._files = files
-                    print(
-                        f"   ✅ Found "
-                        f"{len(files)} audio files"
-                    )
-                    return files
-
-                print("   ⚠️ No audio files found in page")
+                # Add any new IDs not already in list
+                existing = [f["id"] for f in files]
+                for fid in all_ids:
+                    if fid not in existing:
+                        files.append({
+                            "id"  : fid,
+                            "name": f"Rain Audio {len(files)+1}"
+                        })
 
         except Exception as e:
-            print(f"   ⚠️ Scrape error: {e}")
+            print(f"   ⚠️ Scan error: {e}")
 
-        return []
+        self._files = files
+        print(f"   ✅ Using {len(files)} files")
+        return files
 
     def get_total(self):
         return len(self._get_all_files())
@@ -197,8 +256,8 @@ class AudioLoader:
 
     def _download(self, file_id, name):
         """
-        Download using gdown
-        Most reliable for Google Drive
+        Download file from Google Drive
+        Uses gdown for reliable downloading
         """
         local_path = os.path.join(
             AUDIO_DIR,
@@ -219,15 +278,13 @@ class AudioLoader:
 
         print(f"   📥 Downloading: {name}...")
 
-        # Method 1: gdown (best for Google Drive)
+        # Method 1: gdown
         result = self._gdown(file_id, local_path)
         if result:
             return result, name
 
-        # Method 2: requests with confirm
-        result = self._requests_download(
-            file_id, local_path
-        )
+        # Method 2: requests
+        result = self._requests_dl(file_id, local_path)
         if result:
             return result, name
 
@@ -235,16 +292,16 @@ class AudioLoader:
         return None, None
 
     def _gdown(self, file_id, local_path):
-        """Download using gdown library"""
+        """Download using gdown"""
         try:
             import gdown
+            print("   🔄 Method 1: gdown...")
 
             url = (
                 f"https://drive.google.com/uc"
                 f"?id={file_id}"
             )
 
-            print("   🔄 Method 1: gdown...")
             gdown.download(
                 url,
                 local_path,
@@ -267,7 +324,7 @@ class AudioLoader:
             print(f"   ⚠️ gdown error: {e}")
             return None
 
-    def _requests_download(self, file_id, local_path):
+    def _requests_dl(self, file_id, local_path):
         """Download using requests"""
         try:
             print("   🔄 Method 2: requests...")
@@ -278,7 +335,6 @@ class AudioLoader:
                     "(Windows NT 10.0; Win64; x64)"
                 )
             }
-
             url      = (
                 f"https://drive.google.com/uc"
                 f"?export=download"
