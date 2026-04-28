@@ -1,3 +1,13 @@
 {
-    "folder_id": "17pFi9WZWW8hiwM6-DpmTjJbXEvoYHt0w"
+    "folder_id": "17pFi9WZWW8hiwM6-DpmTjJbXEvoYHt0w",
+    "files": [
+        {
+            "id": "PASTE_FILE_ID_1_HERE",
+            "name": "Heavy Rain 1"
+        },
+        {
+            "id": "PASTE_FILE_ID_2_HERE",
+            "name": "Heavy Rain 2"
+        }
+    ]
 }
