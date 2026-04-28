@@ -1,7 +1,7 @@
 """
 Audio Loader
 Loads random audio from Google Drive Public Folder
-Uses file IDs from audio_list.json
+Uses gdown to handle Google Drive downloads properly
 """
 
 import os
@@ -34,22 +34,160 @@ class AudioLoader:
         with open(AUDIO_LIST_FILE, "r") as f:
             data = json.load(f)
         self.folder_id = data.get("folder_id", "")
-        self.files     = data.get("files", [])
+        self._files    = []
+
+    def _get_all_files(self):
+        """
+        Get all files from Google Drive folder
+        using gdown folder listing
+        """
+        if self._files:
+            return self._files
+
+        print(
+            f"   📂 Scanning folder: "
+            f"{self.folder_id}"
+        )
+
+        try:
+            import gdown
+
+            # Get folder contents using gdown
+            folder_url = (
+                f"https://drive.google.com"
+                f"/drive/folders/{self.folder_id}"
+            )
+
+            files = gdown.download_folder(
+                url          = folder_url,
+                skip_download= True,
+                quiet        = False,
+            )
+
+            if files:
+                self._files = [
+                    {
+                        "id"  : f.get("id", ""),
+                        "name": f.get("name", "Rain Audio")
+                    }
+                    for f in files
+                    if f.get("id")
+                ]
+
+                print(
+                    f"   ✅ Found "
+                    f"{len(self._files)} files"
+                )
+                return self._files
+
+        except Exception as e:
+            print(f"   ⚠️ gdown folder error: {e}")
+
+        # Fallback to manual scraping
+        return self._scrape_folder()
+
+    def _scrape_folder(self):
+        """
+        Fallback: scrape folder page
+        to find file IDs
+        """
+        print("   🔄 Trying folder scrape...")
+        try:
+            session  = requests.Session()
+            headers  = {
+                "User-Agent": (
+                    "Mozilla/5.0 "
+                    "(Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36"
+                )
+            }
+
+            # Get folder page
+            url      = (
+                f"https://drive.google.com"
+                f"/drive/folders/{self.folder_id}"
+            )
+            response = session.get(
+                url,
+                headers = headers,
+                timeout = 30
+            )
+
+            if response.status_code == 200:
+                # Find file metadata in JSON
+                # Google embeds file data in page
+                pattern = (
+                    r'\["([\w-]{28,})",'
+                    r'null,null,null,null,'
+                    r'"([^"]+\.'
+                    r'(?:mp3|m4a|wav|ogg|flac|aac))"'
+                    r'\]'
+                )
+                matches = re.findall(
+                    pattern,
+                    response.text,
+                    re.IGNORECASE
+                )
+
+                if matches:
+                    files = [
+                        {"id": m[0], "name": m[1]}
+                        for m in matches
+                    ]
+                    self._files = files
+                    print(
+                        f"   ✅ Found "
+                        f"{len(files)} audio files"
+                    )
+                    return files
+
+                # Try alternative pattern
+                pattern2 = (
+                    r'"([\w-]{28,33})",'
+                    r'"([^"]+\.'
+                    r'(?:mp3|m4a|wav|ogg|flac|aac))"'
+                )
+                matches2 = re.findall(
+                    pattern2,
+                    response.text,
+                    re.IGNORECASE
+                )
+
+                if matches2:
+                    files = [
+                        {"id": m[0], "name": m[1]}
+                        for m in matches2
+                    ]
+                    self._files = files
+                    print(
+                        f"   ✅ Found "
+                        f"{len(files)} audio files"
+                    )
+                    return files
+
+                print("   ⚠️ No audio files found in page")
+
+        except Exception as e:
+            print(f"   ⚠️ Scrape error: {e}")
+
+        return []
 
     def get_total(self):
-        return len(self.files)
+        return len(self._get_all_files())
 
     def download_random(self):
         """
-        Pick a random audio file and download it
+        Pick random file and download it
         Returns (local_path, name)
         """
-        if not self.files:
-            print("   ❌ No files in audio_list.json")
+        files = self._get_all_files()
+
+        if not files:
+            print("   ❌ No files found in folder")
             return None, None
 
-        # Pick random file
-        audio   = random.choice(self.files)
+        # Pick random
+        audio   = random.choice(files)
         file_id = audio["id"]
         name    = audio["name"]
 
@@ -59,15 +197,15 @@ class AudioLoader:
 
     def _download(self, file_id, name):
         """
-        Download file from Google Drive
-        Tries multiple methods
+        Download using gdown
+        Most reliable for Google Drive
         """
         local_path = os.path.join(
             AUDIO_DIR,
             f"{file_id}.m4a"
         )
 
-        # Use cached file if already downloaded
+        # Use cache if valid
         if os.path.exists(local_path):
             size = os.path.getsize(local_path)
             if size > 1024 * 1024:
@@ -81,34 +219,39 @@ class AudioLoader:
 
         print(f"   📥 Downloading: {name}...")
 
-        # Try all methods
-        for method_num, method in enumerate([
-            self._method1,
-            self._method2,
-            self._method3,
-        ], 1):
-            print(f"   🔄 Method {method_num}...")
-            result = method(file_id, local_path)
-            if result:
-                return result, name
+        # Method 1: gdown (best for Google Drive)
+        result = self._gdown(file_id, local_path)
+        if result:
+            return result, name
 
-        print("   ❌ All download methods failed")
+        # Method 2: requests with confirm
+        result = self._requests_download(
+            file_id, local_path
+        )
+        if result:
+            return result, name
+
+        print("   ❌ All methods failed")
         return None, None
 
-    def _method1(self, file_id, local_path):
-        """Method 1: gdown library"""
+    def _gdown(self, file_id, local_path):
+        """Download using gdown library"""
         try:
             import gdown
+
             url = (
                 f"https://drive.google.com/uc"
                 f"?id={file_id}"
             )
+
+            print("   🔄 Method 1: gdown...")
             gdown.download(
                 url,
                 local_path,
-                quiet=False,
-                fuzzy=True
+                quiet = False,
+                fuzzy = True,
             )
+
             if os.path.exists(local_path):
                 size = os.path.getsize(local_path)
                 if size > 1024 * 100:
@@ -117,25 +260,31 @@ class AudioLoader:
                         f"{size // 1024 // 1024} MB"
                     )
                     return local_path
-            return None
-        except Exception as e:
-            print(f"   ⚠️ Method 1 error: {e}")
+
             return None
 
-    def _method2(self, file_id, local_path):
-        """Method 2: requests with confirm token"""
+        except Exception as e:
+            print(f"   ⚠️ gdown error: {e}")
+            return None
+
+    def _requests_download(self, file_id, local_path):
+        """Download using requests"""
         try:
+            print("   🔄 Method 2: requests...")
             session  = requests.Session()
-            url      = (
-                f"https://drive.google.com/uc"
-                f"?export=download&id={file_id}&confirm=t"
-            )
             headers  = {
                 "User-Agent": (
                     "Mozilla/5.0 "
                     "(Windows NT 10.0; Win64; x64)"
                 )
             }
+
+            url      = (
+                f"https://drive.google.com/uc"
+                f"?export=download"
+                f"&id={file_id}"
+                f"&confirm=t"
+            )
             response = session.get(
                 url,
                 headers = headers,
@@ -147,80 +296,29 @@ class AudioLoader:
                 "Content-Type", ""
             )
             if "text/html" in content_type:
+                print("   ⚠️ Got HTML page")
                 return None
 
-            return self._save(response, local_path)
+            if response.status_code == 200:
+                with open(local_path, "wb") as f:
+                    for chunk in response.iter_content(
+                        chunk_size=32768
+                    ):
+                        if chunk:
+                            f.write(chunk)
 
-        except Exception as e:
-            print(f"   ⚠️ Method 2 error: {e}")
-            return None
+                size = os.path.getsize(local_path)
+                if size > 1024 * 100:
+                    print(
+                        f"   ✅ Downloaded: "
+                        f"{size // 1024 // 1024} MB"
+                    )
+                    return local_path
 
-    def _method3(self, file_id, local_path):
-        """Method 3: Direct download link"""
-        try:
-            session  = requests.Session()
-            url      = (
-                f"https://drive.google.com"
-                f"/uc?export=download"
-                f"&id={file_id}"
-                f"&confirm=t"
-                f"&uuid=1"
-            )
-            headers  = {
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "(X11; Linux x86_64)"
-                ),
-                "Accept": "*/*",
-            }
-            response = session.get(
-                url,
-                headers         = headers,
-                stream          = True,
-                timeout         = 300,
-                allow_redirects = True
-            )
-
-            content_type = response.headers.get(
-                "Content-Type", ""
-            )
-            if "text/html" in content_type:
-                return None
-
-            return self._save(response, local_path)
-
-        except Exception as e:
-            print(f"   ⚠️ Method 3 error: {e}")
-            return None
-
-    def _save(self, response, local_path):
-        """Save response to file and verify"""
-        try:
-            if response.status_code != 200:
-                return None
-
-            with open(local_path, "wb") as f:
-                for chunk in response.iter_content(
-                    chunk_size=32768
-                ):
-                    if chunk:
-                        f.write(chunk)
-
-            size = os.path.getsize(local_path)
-
-            if size < 1024 * 100:
-                if os.path.exists(local_path):
-                    os.remove(local_path)
-                return None
-
-            print(
-                f"   ✅ Downloaded: "
-                f"{size // 1024 // 1024} MB"
-            )
-            return local_path
-
-        except Exception as e:
-            print(f"   ⚠️ Save error: {e}")
             if os.path.exists(local_path):
                 os.remove(local_path)
+            return None
+
+        except Exception as e:
+            print(f"   ⚠️ requests error: {e}")
             return None
