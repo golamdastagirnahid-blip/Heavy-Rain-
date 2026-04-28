@@ -5,6 +5,7 @@ Picks random audio from Google Drive folder
 Gets stock footage from Pexels/Pixabay
 Loops footage over audio
 Uploads to YouTube
+Humanized upload times (1-90 min random delay)
 """
 
 import os
@@ -33,11 +34,51 @@ def format_duration(seconds):
     return f"{hours}h {minutes}m"
 
 
+def humanize_start():
+    """
+    Wait a random time before starting
+    Makes upload times look natural
+    Between 1 and 90 minutes random delay
+    """
+    wait_minutes = random.randint(1, 90)
+    wait_seconds = wait_minutes * 60
+
+    print(f"⏰ Humanizing start time...")
+    print(f"   Random delay: {wait_minutes} minutes")
+    print(
+        f"   Current time: "
+        f"{datetime.now().strftime('%H:%M:%S')}"
+    )
+    print(
+        f"   Will start after: "
+        f"{wait_minutes} minutes"
+    )
+
+    time.sleep(wait_seconds)
+
+    print(
+        f"   ✅ Starting now: "
+        f"{datetime.now().strftime('%H:%M:%S')}"
+    )
+
+
 def main():
     print("=" * 60)
     print("🌧️  Heavy Rain Deep Sleep Automation")
-    print(f"   Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(
+        f"   Scheduled: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
     print("=" * 60)
+
+    # Humanize start time
+    # Random delay between 1-90 minutes
+    humanize_start()
+
+    print(
+        f"\n🕐 Actual start: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
 
     # Initialize all components
     db        = Database()
@@ -219,10 +260,14 @@ def main():
             except Exception:
                 pass
 
-        # Wait between parts (humanized)
+        # Humanized wait between parts
         if part_num < num_parts:
-            wait = random.randint(30, 90)
-            print(f"\n⏳ Waiting {wait}s...")
+            wait = random.randint(60, 300)
+            print(
+                f"\n⏳ Waiting "
+                f"{wait // 60}min {wait % 60}sec "
+                f"before next part..."
+            )
             time.sleep(wait)
 
     # Final cleanup
@@ -263,6 +308,10 @@ def main():
     print(
         f"📅 Today's uploads: "
         f"{db.get_today_count()}/3"
+    )
+    print(
+        f"🕐 Finished at: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     print("=" * 60)
 
