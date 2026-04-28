@@ -1,8 +1,12 @@
 {
-    "uploaded_videos": [],
-    "daily_counts": {},
+    "uploaded_videos": [
+        "rain_20260428_113007_part1"
+    ],
+    "daily_counts": {
+        "2026-04-28": 1
+    },
     "statistics": {
-        "total_uploads": 0
+        "total_uploads": 1
     },
     "last_audio_index": 0,
     "last_footage_url": ""
