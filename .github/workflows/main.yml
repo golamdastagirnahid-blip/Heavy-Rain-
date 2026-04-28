@@ -1,0 +1,108 @@
+name: Rain Sleep Daily Upload
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 4 AM UTC
+    - cron: "0 12 * * *"  # 12 PM UTC
+    - cron: "0 20 * * *"  # 8 PM UTC
+  workflow_dispatch:        # Manual trigger
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          echo "✅ FFmpeg: $(ffmpeg -version | head -1)"
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "✅ All dependencies installed"
+
+      - name: Create Credentials
+        run: |
+          echo '${{ secrets.YOUTUBE_CLIENT_SECRETS }}' \
+            > client_secrets.json
+          echo '${{ secrets.YOUTUBE_TOKEN }}' \
+            > token.json
+          echo "✅ Credentials ready"
+
+      - name: Setup Database
+        run: |
+          if [ ! -f database.json ]; then
+            echo '{
+              "uploaded_videos": [],
+              "daily_counts": {},
+              "statistics": {"total_uploads": 0},
+              "last_audio_index": 0,
+              "last_footage_url": ""
+            }' > database.json
+            echo "✅ Database created"
+          else
+            echo "✅ Database exists"
+          fi
+
+      - name: Check Daily Limit
+        run: |
+          python3 -c "
+          import json
+          from datetime import datetime
+          with open('database.json') as f:
+              db = json.load(f)
+          today = datetime.now().strftime('%Y-%m-%d')
+          count = db.get('daily_counts', {}).get(today, 0)
+          print(f'📊 Uploads today: {count}/3')
+          if count >= 3:
+              print('✅ Daily limit reached')
+              exit(1)
+          else:
+              print(f'✅ Can upload {3-count} more today')
+          "
+
+      - name: Run Upload Bot
+        run: python main.py
+        env:
+          PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY:    ${{ secrets.PIXABAY_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Save Database
+        if: always()
+        run: |
+          git config user.name  "automation-bot"
+          git config user.email "bot@github.com"
+          git add database.json
+          git diff --staged --quiet || \
+            git commit -m "Update DB [skip ci]"
+          git push || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf downloads/audio/   || true
+          rm -rf downloads/footage/ || true
+          rm -rf output/            || true
+          rm -rf thumbnails/        || true
+          rm -f  token.json         || true
+          rm -f  client_secrets.json || true
+          echo "✅ Cleanup done"
