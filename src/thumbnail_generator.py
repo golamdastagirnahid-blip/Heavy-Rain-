@@ -130,8 +130,23 @@ class ThumbnailGenerator:
     def _extract_frame(
         self, footage_path, frame_path
     ):
-        """Extract random frame from footage"""
+        """
+        Extract random frame from stock footage
+        MUST take screenshot from actual video
+        """
+        if not footage_path:
+            print("   ⚠️ No footage path provided")
+            return None
+
+        if not os.path.exists(footage_path):
+            print(
+                f"   ⚠️ Footage not found: "
+                f"{footage_path}"
+            )
+            return None
+
         try:
+            # Get video duration
             cmd = [
                 "ffprobe", "-v", "quiet",
                 "-print_format", "json",
@@ -141,16 +156,32 @@ class ThumbnailGenerator:
                 cmd, capture_output=True,
                 text=True, timeout=30
             )
-            d  = json.loads(r.stdout)
-            dur= float(d["format"]["duration"])
-            ts = random.uniform(dur*0.2, dur*0.8)
+            d   = json.loads(r.stdout)
+            dur = float(d["format"]["duration"])
 
+            # Pick random timestamp
+            # Between 20% and 80% to avoid
+            # black frames at start/end
+            ts = random.uniform(
+                dur * 0.2, dur * 0.8
+            )
+
+            print(
+                f"   📸 Taking screenshot at "
+                f"{ts:.1f}s from footage"
+            )
+
+            # Extract frame at high quality
             cmd = [
                 "ffmpeg", "-y",
                 "-ss", str(ts),
                 "-i", footage_path,
                 "-vframes", "1",
-                "-vf", "scale=1280:720:flags=lanczos",
+                "-vf", (
+                    "scale=1280:720:"
+                    "force_original_aspect_ratio=increase,"
+                    "crop=1280:720"
+                ),
                 "-q:v", "1",
                 frame_path
             ]
@@ -158,15 +189,32 @@ class ThumbnailGenerator:
                 cmd, capture_output=True,
                 text=True, timeout=30
             )
-            if (
-                r.returncode == 0
-                and os.path.exists(frame_path)
-            ):
-                print(f"   📸 Frame at {ts:.1f}s")
-                return frame_path
+
+            if r.returncode != 0:
+                print(
+                    f"   ⚠️ FFmpeg error: "
+                    f"{r.stderr[-100:]}"
+                )
+                return None
+
+            if not os.path.exists(frame_path):
+                print("   ⚠️ Frame file not created")
+                return None
+
+            size = os.path.getsize(frame_path)
+            if size < 1024:
+                print("   ⚠️ Frame too small")
+                return None
+
+            print(
+                f"   ✅ Screenshot taken: "
+                f"{size // 1024} KB"
+            )
+            return frame_path
+
         except Exception as e:
-            print(f"   ⚠️ Frame: {e}")
-        return None
+            print(f"   ⚠️ Frame error: {e}")
+            return None
 
     def _make_bg(self, output_path):
         """
@@ -182,8 +230,6 @@ class ThumbnailGenerator:
             draw = ImageDraw.Draw(img)
 
             # 135deg gradient
-            # At 135deg, progress goes from
-            # top-left to bottom-right
             for y in range(H):
                 for x in range(0, W, 4):
                     # Progress 0-1 along 135deg axis
@@ -259,7 +305,6 @@ class ThumbnailGenerator:
             W, H = 1280, 720
 
             # Scale factor from HTML to output
-            # HTML: 640x360 → Output: 1280x720
             S = 2
 
             # ── Open background ──
@@ -271,7 +316,6 @@ class ThumbnailGenerator:
             )
 
             # ── Color grade footage ──
-            # Darken slightly like overlay effect
             img_rgb = img.convert("RGB")
             img_rgb = ImageEnhance.Brightness(
                 img_rgb
@@ -284,34 +328,30 @@ class ThumbnailGenerator:
             draw = ImageDraw.Draw(img)
 
             # ════════════════════════════════
-            # OVERLAYS - matching HTML exactly
+            # OVERLAYS
             # ════════════════════════════════
 
             # ── Bottom gradient ──
-            # height: 75% = 540px
-            # transparent → rgba(5,12,30,0.5) at 30%
-            # → rgba(5,12,30,0.85) at 60%
-            # → rgba(3,8,20,0.97) at 100%
-            bot_start = H - int(H * 0.75)  # = 180
-            bot_h     = int(H * 0.75)      # = 540
+            bot_start = H - int(H * 0.75)  # 180
+            bot_h     = int(H * 0.75)      # 540
 
             for i in range(bot_h):
-                t = i / bot_h  # 0 to 1
+                t = i / bot_h
 
                 if t < 0.30:
                     p = t / 0.30
-                    a = int(0 + p * 128)      # 0→128
+                    a = int(0 + p * 128)
                     c = (5, 12, 30, a)
                 elif t < 0.60:
                     p = (t - 0.30) / 0.30
-                    a = int(128 + p * 89)     # 128→217
+                    a = int(128 + p * 89)
                     c = (5, 12, 30, a)
                 else:
                     p = (t - 0.60) / 0.40
-                    a = int(217 + p * 30)     # 217→247
-                    r = int(5 - p*2)          # 5→3
-                    g = int(12 - p*4)         # 12→8
-                    b = int(30 - p*10)        # 30→20
+                    a = int(217 + p * 30)
+                    r = int(5 - p*2)
+                    g = int(12 - p*4)
+                    b = int(30 - p*10)
                     c = (r, g, b, a)
 
                 draw.rectangle(
@@ -320,28 +360,22 @@ class ThumbnailGenerator:
                 )
 
             # ── Top gradient ──
-            # height: 35% = 252px
-            # transparent → rgba(5,12,30,0.5)
-            top_h = int(H * 0.35)  # = 252
+            top_h = int(H * 0.35)  # 252
 
             for i in range(top_h):
-                # Goes from bottom(transparent)
-                # to top(0.5 opacity)
-                t = 1 - (i / top_h)  # 1 at top
-                a = int(t * 128)      # 128 = 0.5*255
+                t = 1 - (i / top_h)
+                a = int(t * 128)
                 draw.rectangle(
                     [(0, i), (W, i+1)],
                     fill=(5, 12, 30, a)
                 )
 
             # ── Left vignette ──
-            # width: 30% = 384px
-            # rgba(0,0,15,0.7) → transparent
-            vig_w = int(W * 0.30)  # = 384
+            vig_w = int(W * 0.30)  # 384
 
             for i in range(vig_w):
                 t = 1 - (i / vig_w)
-                a = int(t * 179)     # 179 = 0.7*255
+                a = int(t * 179)
                 draw.rectangle(
                     [(i, 0), (i+1, H)],
                     fill=(0, 0, 15, a)
@@ -361,30 +395,17 @@ class ThumbnailGenerator:
             draw = ImageDraw.Draw(img)
 
             # ════════════════════════════════
-            # CONTENT - padding: 20px 28px x2
-            # = 40px top/bottom, 56px left/right
+            # CONTENT
             # ════════════════════════════════
 
             PAD_X = 28 * S   # 56px
             PAD_Y = 20 * S   # 40px
 
             # ── Load fonts ──
-            # HTML: font-family: 'Arial Black', Arial
-            # Best match on Ubuntu: DejaVuSans-Bold
-
-            # channel-name: 11px → 22px
             f_channel = self._font(11 * S)
-
-            # part-indicator: 13px → 26px
             f_part    = self._font(13 * S)
-
-            # title: 36px → 72px
             f_title   = self._font(36 * S)
-
-            # badge: 11px → 22px
             f_badge   = self._font(11 * S)
-
-            # rain icon: 26px → 52px
             f_icon    = self._font(26 * S)
 
             # ════════════════════════════════
@@ -394,9 +415,6 @@ class ThumbnailGenerator:
             top_y = PAD_Y  # 40px from top
 
             # ── Brand bar ──
-            # width: 3px → 6px
-            # height: 26px → 52px
-            # color: #4191ff
             bar_x = PAD_X
             bar_w = 3 * S   # 6px
             bar_h = 26 * S  # 52px
@@ -410,7 +428,6 @@ class ThumbnailGenerator:
             )
 
             # Glow effect on bar
-            # box-shadow: 0 0 8px rgba(65,145,255,0.8)
             glow_img = Image.new(
                 "RGBA", (W, H), (0, 0, 0, 0)
             )
@@ -431,17 +448,12 @@ class ThumbnailGenerator:
             draw = ImageDraw.Draw(img)
 
             # ── Channel name ──
-            # gap: 8px → 16px from bar
-            # color: #4191ff
-            # letter-spacing: 2px → 4px
-            # text-shadow: 0 0 10px rgba(65,145,255,0.5)
-            #              0 2px 4px rgba(0,0,0,0.8)
             chan_x = bar_x + bar_w + (8 * S)
             chan_y = top_y + 2
 
             channel_text = "HEAVY RAIN DEEP SLEEP"
 
-            # Shadow: 0 2px 4px rgba(0,0,0,0.8)
+            # Shadow
             draw.text(
                 (chan_x, chan_y + 4),
                 channel_text,
@@ -457,8 +469,6 @@ class ThumbnailGenerator:
             )
 
             # ── Rain icon top right ──
-            # font-size: 26px → 52px
-            # position: top right with PAD_X
             try:
                 icon_bbox = draw.textbbox(
                     (0, 0), "🌧️", font=f_icon
@@ -476,43 +486,33 @@ class ThumbnailGenerator:
 
             # ════════════════════════════════
             # BOTTOM SECTION
-            # position: absolute bottom with PAD
             # ════════════════════════════════
 
-            # Work from bottom up
-            # gap between elements: 10px → 20px
-
-            # ── Badges at very bottom ──
-            # padding: 5px 12px → 10px 24px
             badge_pad_x = 12 * S   # 24px
             badge_pad_y = 5  * S   # 10px
             badge_gap   = 8  * S   # 16px
             badge_radius= 6  * S   # 12px
 
-            # Measure badge heights
             badge_bbox = draw.textbbox(
                 (0,0), "TEST", font=f_badge
             )
             badge_text_h = badge_bbox[3]-badge_bbox[1]
             badge_h      = badge_text_h + badge_pad_y*2
 
-            # Badge bottom Y
             badge_y = H - PAD_Y - badge_h
 
-            # Draw all 4 badges
             badge_x = PAD_X
             badges  = [
                 (
                     f"⏱ {duration_str.upper()}",
                     BADGE_DUR, BADGE_DUR2
                 ),
-                ("✓ NO ADS",   BADGE_ADS, BADGE_ADS2),
-                ("😴 SLEEP AID",BADGE_SLP, BADGE_SLP2),
-                ("HD",          BADGE_HD,  BADGE_HD2),
+                ("✓ NO ADS",    BADGE_ADS, BADGE_ADS2),
+                ("😴 SLEEP AID", BADGE_SLP, BADGE_SLP2),
+                ("HD",           BADGE_HD,  BADGE_HD2),
             ]
 
             for badge_text, col1, col2 in badges:
-                # Measure text
                 try:
                     tb   = draw.textbbox(
                         (0,0), badge_text, font=f_badge
@@ -523,7 +523,7 @@ class ThumbnailGenerator:
 
                 bw = tw + badge_pad_x * 2
 
-                # Shadow: 0 3px 8px rgba(0,0,0,0.5)
+                # Shadow
                 shadow_img = Image.new(
                     "RGBA", (W, H), (0,0,0,0)
                 )
@@ -544,17 +544,14 @@ class ThumbnailGenerator:
                 ).convert("RGB")
                 draw = ImageDraw.Draw(img)
 
-                # Badge gradient (135deg col1→col2)
-                # Simulate with top→bottom blend
+                # Badge gradient
                 badge_img  = Image.new(
                     "RGBA", (W, H), (0,0,0,0)
                 )
                 badge_draw = ImageDraw.Draw(badge_img)
 
-                # Draw gradient inside rounded rect
                 for gi in range(badge_h):
                     t  = gi / badge_h
-                    # 135deg: blend diagonally
                     gr = int(col1[0]*(1-t)+col2[0]*t)
                     gg = int(col1[1]*(1-t)+col2[1]*t)
                     gb = int(col1[2]*(1-t)+col2[2]*t)
@@ -591,8 +588,7 @@ class ThumbnailGenerator:
                 ).convert("RGB")
                 draw = ImageDraw.Draw(img)
 
-                # Inner highlight:
-                # inset 0 1px 0 rgba(255,255,255,0.15)
+                # Inner highlight
                 hi_img  = Image.new(
                     "RGBA", (W,H), (0,0,0,0)
                 )
@@ -613,7 +609,6 @@ class ThumbnailGenerator:
                 draw = ImageDraw.Draw(img)
 
                 # Badge text
-                # letter-spacing: 1.5px → 3px
                 text_y = badge_y + badge_pad_y
                 text_x = badge_x + badge_pad_x
                 draw.text(
@@ -626,19 +621,6 @@ class ThumbnailGenerator:
                 badge_x += bw + badge_gap
 
             # ── Title ──
-            # font-size: 36px → 72px
-            # color: #f0f5ff
-            # font-weight: 900
-            # text-shadow: 3px 3px #000510,
-            #              4px 4px #000510,
-            #              5px 5px #000510,
-            #              glow rgba(30,80,180,0.5)
-            #              glow rgba(30,80,180,0.3)
-            # line-height: 1.1 → 79px
-            # letter-spacing: 1px → 2px
-            # max 22 chars per line
-
-            # Clean title
             clean = title
             if part_num:
                 clean = re.sub(
@@ -647,7 +629,6 @@ class ThumbnailGenerator:
                     flags=re.IGNORECASE
                 ).strip()
 
-            # Remove emojis for clean look
             clean_ascii = re.sub(
                 r'[^\x00-\x7F]+', '', clean
             ).strip()
@@ -655,7 +636,6 @@ class ThumbnailGenerator:
             if not clean_ascii:
                 clean_ascii = clean
 
-            # Uppercase
             clean_ascii = clean_ascii.upper()
 
             # Word wrap at 22 chars
@@ -674,17 +654,14 @@ class ThumbnailGenerator:
                 lines.append(line)
             lines = lines[:2]
 
-            # line-height: 1.1 x 72px = 79px
             line_h = int(36 * S * 1.1)  # 79px
 
-            # Title Y: above badges
-            # gap: 10px → 20px between elements
             title_bottom = badge_y - (10 * S)
             title_total_h= len(lines) * line_h
             title_y      = title_bottom - title_total_h
 
             for line_text in lines:
-                # text-shadow: 3px,4px,5px #000510
+                # Text shadow
                 for ox, oy in [
                     (3*S, 3*S),
                     (4*S, 4*S),
@@ -697,15 +674,13 @@ class ThumbnailGenerator:
                         fill = SHADOW
                     )
 
-                # Glow: rgba(30,80,180,0.5)
+                # Glow
                 glow_img  = Image.new(
                     "RGBA", (W,H), (0,0,0,0)
                 )
                 glow_draw = ImageDraw.Draw(glow_img)
                 for g in range(1, 12):
-                    alpha = int(
-                        128 * (1-g/12)
-                    )
+                    alpha = int(128 * (1-g/12))
                     glow_draw.text(
                         (PAD_X-g, title_y),
                         line_text,
@@ -748,10 +723,6 @@ class ThumbnailGenerator:
                 title_y += line_h
 
             # ── Part indicator ──
-            # font-size: 13px → 26px
-            # color: #4191ff
-            # letter-spacing: 3px → 6px
-            # above title with gap 10px → 20px
             if (
                 part_num
                 and total_parts
@@ -762,7 +733,6 @@ class ThumbnailGenerator:
                     f"OF {total_parts}"
                 )
 
-                # Y above title
                 part_bottom = (
                     badge_y
                     - (10*S)
@@ -770,7 +740,7 @@ class ThumbnailGenerator:
                     - (10*S)
                 )
 
-                # Shadow: 0 2px 8px rgba(0,0,20,0.9)
+                # Shadow
                 draw.text(
                     (PAD_X, part_bottom+4),
                     part_text,
@@ -807,10 +777,9 @@ class ThumbnailGenerator:
     def _font(self, size):
         """
         Load Arial Black equivalent
-        Best match: DejaVuSans-Bold (weight 900)
+        Best match: DejaVuSans-Bold
         """
         paths = [
-            # Bold fonts = closest to Arial Black
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/ubuntu/Ubuntu-Bold.ttf",
