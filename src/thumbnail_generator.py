@@ -15,8 +15,7 @@ from PIL import (
     Image,
     ImageDraw,
     ImageFont,
-    ImageEnhance,
-    ImageFilter
+    ImageEnhance
 )
 
 THUMB_DIR = os.path.join(
@@ -29,44 +28,36 @@ os.makedirs(THUMB_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────
 # EXACT COLORS FROM HTML
-# All values taken directly from CSS
 # ─────────────────────────────────────────
 
-# Background gradient colors
-BG_1 = (10,  22,  40)   # #0a1628
-BG_2 = (13,  32,  64)   # #0d2040
-BG_3 = (10,  24,  48)   # #0a1830
-BG_4 = (6,   14,  30)   # #060e1e
+BG_1 = (10,  22,  40)
+BG_2 = (13,  32,  64)
+BG_3 = (10,  24,  48)
+BG_4 = (6,   14,  30)
 
-# Brand
-BLUE         = (65,  145, 255)  # #4191ff
-WHITE        = (240, 245, 255)  # #f0f5ff
-SHADOW       = (0,   5,   16)   # #000510
+BLUE   = (65,  145, 255)
+WHITE  = (240, 245, 255)
+SHADOW = (0,   5,   16)
 
-# Bottom gradient stops
-BOT_G1 = (5,  12, 30,   0)    # transparent
-BOT_G2 = (5,  12, 30, 128)    # 0.5 opacity
-BOT_G3 = (5,  12, 30, 217)    # 0.85 opacity
-BOT_G4 = (3,   8, 20, 247)    # 0.97 opacity
+BOT_G1 = (5,  12, 30,   0)
+BOT_G2 = (5,  12, 30, 128)
+BOT_G3 = (5,  12, 30, 217)
+BOT_G4 = (3,   8, 20, 247)
 
-# Top gradient
-TOP_G1 = (5,  12, 30,   0)    # transparent
-TOP_G2 = (5,  12, 30, 128)    # 0.5 opacity
+TOP_G1 = (5,  12, 30,   0)
+TOP_G2 = (5,  12, 30, 128)
 
-# Vignette
-VIG    = (0,   0, 15, 179)    # rgba(0,0,15,0.7)
+VIG    = (0,   0, 15, 179)
 
-# Badge gradients (start color used as flat)
-BADGE_DUR = (37,  99,  235)   # #2563eb
-BADGE_ADS = (22,  163,  74)   # #16a34a
-BADGE_SLP = (124,  58, 237)   # #7c3aed
-BADGE_HD  = (220,  38,  38)   # #dc2626
+BADGE_DUR  = (37,  99,  235)
+BADGE_ADS  = (22,  163,  74)
+BADGE_SLP  = (124,  58, 237)
+BADGE_HD   = (220,  38,  38)
 
-# Badge end colors (for gradient simulation)
-BADGE_DUR2 = (29,  78,  216)  # #1d4ed8
-BADGE_ADS2 = (21, 128,  61)   # #15803d
-BADGE_SLP2 = (109, 40,  217)  # #6d28d9
-BADGE_HD2  = (185, 28,  28)   # #b91c1c
+BADGE_DUR2 = (29,  78,  216)
+BADGE_ADS2 = (21, 128,  61)
+BADGE_SLP2 = (109, 40,  217)
+BADGE_HD2  = (185, 28,  28)
 
 
 class ThumbnailGenerator:
@@ -90,7 +81,6 @@ class ThumbnailGenerator:
             f"frame_{part_num or 1}.jpg"
         )
 
-        # Get background
         bg = None
         if footage_path and os.path.exists(
             footage_path
@@ -102,7 +92,6 @@ class ThumbnailGenerator:
         if not bg:
             bg = self._make_bg(frame_path)
 
-        # Build thumbnail
         result = self._build(
             bg_path      = bg,
             output_path  = output_path,
@@ -159,9 +148,7 @@ class ThumbnailGenerator:
             d   = json.loads(r.stdout)
             dur = float(d["format"]["duration"])
 
-            # Pick random timestamp
-            # Between 20% and 80% to avoid
-            # black frames at start/end
+            # Pick random timestamp 20%-80%
             ts = random.uniform(
                 dur * 0.2, dur * 0.8
             )
@@ -229,38 +216,35 @@ class ThumbnailGenerator:
             img  = Image.new("RGB", (W, H))
             draw = ImageDraw.Draw(img)
 
-            # 135deg gradient
             for y in range(H):
                 for x in range(0, W, 4):
-                    # Progress 0-1 along 135deg axis
                     t = (x/W + y/H) / 2
 
                     if t < 0.30:
-                        p  = t / 0.30
-                        r  = int(BG_1[0]*(1-p) + BG_2[0]*p)
-                        g  = int(BG_1[1]*(1-p) + BG_2[1]*p)
-                        b  = int(BG_1[2]*(1-p) + BG_2[2]*p)
+                        p = t / 0.30
+                        r = int(BG_1[0]*(1-p)+BG_2[0]*p)
+                        g = int(BG_1[1]*(1-p)+BG_2[1]*p)
+                        b = int(BG_1[2]*(1-p)+BG_2[2]*p)
                     elif t < 0.60:
-                        p  = (t-0.30) / 0.30
-                        r  = int(BG_2[0]*(1-p) + BG_3[0]*p)
-                        g  = int(BG_2[1]*(1-p) + BG_3[1]*p)
-                        b  = int(BG_2[2]*(1-p) + BG_3[2]*p)
+                        p = (t-0.30) / 0.30
+                        r = int(BG_2[0]*(1-p)+BG_3[0]*p)
+                        g = int(BG_2[1]*(1-p)+BG_3[1]*p)
+                        b = int(BG_2[2]*(1-p)+BG_3[2]*p)
                     else:
-                        p  = (t-0.60) / 0.40
-                        r  = int(BG_3[0]*(1-p) + BG_4[0]*p)
-                        g  = int(BG_3[1]*(1-p) + BG_4[1]*p)
-                        b  = int(BG_3[2]*(1-p) + BG_4[2]*p)
+                        p = (t-0.60) / 0.40
+                        r = int(BG_3[0]*(1-p)+BG_4[0]*p)
+                        g = int(BG_3[1]*(1-p)+BG_4[1]*p)
+                        b = int(BG_3[2]*(1-p)+BG_4[2]*p)
 
                     draw.rectangle(
                         [(x, y), (x+3, y)],
                         fill=(r, g, b)
                     )
 
-            # Rain streaks matching HTML animation
             for _ in range(500):
                 x   = random.randint(0, W)
                 y   = random.randint(-50, H)
-                h   = random.randint(15*2, 55*2)
+                h   = random.randint(30, 110)
                 opa = random.uniform(0.2, 0.7)
                 col = (
                     int(100 * opa),
@@ -277,7 +261,6 @@ class ThumbnailGenerator:
 
         except Exception as e:
             print(f"   ⚠️ BG error: {e}")
-            # Ultra simple fallback
             img = Image.new("RGB", (1280, 720), BG_1)
             img.save(output_path, "JPEG", quality=98)
             return output_path
@@ -291,9 +274,9 @@ class ThumbnailGenerator:
         bg_path,
         output_path,
         title,
-        part_num    = None,
-        total_parts = None,
-        duration_str= ""
+        part_num     = None,
+        total_parts  = None,
+        duration_str = ""
     ):
         """
         Build thumbnail exactly matching HTML
@@ -303,11 +286,8 @@ class ThumbnailGenerator:
         """
         try:
             W, H = 1280, 720
+            S    = 2
 
-            # Scale factor from HTML to output
-            S = 2
-
-            # ── Open background ──
             img = Image.open(
                 bg_path
             ).convert("RGBA")
@@ -315,7 +295,6 @@ class ThumbnailGenerator:
                 (W, H), Image.LANCZOS
             )
 
-            # ── Color grade footage ──
             img_rgb = img.convert("RGB")
             img_rgb = ImageEnhance.Brightness(
                 img_rgb
@@ -323,24 +302,19 @@ class ThumbnailGenerator:
             img_rgb = ImageEnhance.Contrast(
                 img_rgb
             ).enhance(1.15)
-            img = img_rgb.convert("RGBA")
-
+            img  = img_rgb.convert("RGBA")
             draw = ImageDraw.Draw(img)
 
-            # ════════════════════════════════
-            # OVERLAYS
-            # ════════════════════════════════
-
             # ── Bottom gradient ──
-            bot_start = H - int(H * 0.75)  # 180
-            bot_h     = int(H * 0.75)      # 540
+            bot_start = H - int(H * 0.75)
+            bot_h     = int(H * 0.75)
 
             for i in range(bot_h):
                 t = i / bot_h
 
                 if t < 0.30:
                     p = t / 0.30
-                    a = int(0 + p * 128)
+                    a = int(p * 128)
                     c = (5, 12, 30, a)
                 elif t < 0.60:
                     p = (t - 0.30) / 0.30
@@ -349,18 +323,21 @@ class ThumbnailGenerator:
                 else:
                     p = (t - 0.60) / 0.40
                     a = int(217 + p * 30)
-                    r = int(5 - p*2)
-                    g = int(12 - p*4)
-                    b = int(30 - p*10)
+                    r = int(5  - p * 2)
+                    g = int(12 - p * 4)
+                    b = int(30 - p * 10)
                     c = (r, g, b, a)
 
                 draw.rectangle(
-                    [(0, bot_start+i), (W, bot_start+i+1)],
+                    [
+                        (0, bot_start+i),
+                        (W, bot_start+i+1)
+                    ],
                     fill=c
                 )
 
             # ── Top gradient ──
-            top_h = int(H * 0.35)  # 252
+            top_h = int(H * 0.35)
 
             for i in range(top_h):
                 t = 1 - (i / top_h)
@@ -371,7 +348,7 @@ class ThumbnailGenerator:
                 )
 
             # ── Left vignette ──
-            vig_w = int(W * 0.30)  # 384
+            vig_w = int(W * 0.30)
 
             for i in range(vig_w):
                 t = 1 - (i / vig_w)
@@ -390,34 +367,24 @@ class ThumbnailGenerator:
                     fill=(0, 0, 15, a)
                 )
 
-            # Convert to RGB for text drawing
             img  = img.convert("RGB")
             draw = ImageDraw.Draw(img)
 
-            # ════════════════════════════════
-            # CONTENT
-            # ════════════════════════════════
+            PAD_X = 28 * S
+            PAD_Y = 20 * S
 
-            PAD_X = 28 * S   # 56px
-            PAD_Y = 20 * S   # 40px
-
-            # ── Load fonts ──
             f_channel = self._font(11 * S)
             f_part    = self._font(13 * S)
             f_title   = self._font(36 * S)
             f_badge   = self._font(11 * S)
             f_icon    = self._font(26 * S)
 
-            # ════════════════════════════════
-            # TOP SECTION
-            # ════════════════════════════════
-
-            top_y = PAD_Y  # 40px from top
+            top_y = PAD_Y
 
             # ── Brand bar ──
             bar_x = PAD_X
-            bar_w = 3 * S   # 6px
-            bar_h = 26 * S  # 52px
+            bar_w = 3  * S
+            bar_h = 26 * S
 
             draw.rectangle(
                 [
@@ -427,11 +394,11 @@ class ThumbnailGenerator:
                 fill=BLUE
             )
 
-            # Glow effect on bar
-            glow_img = Image.new(
+            # ── Bar glow ──
+            glow_img  = Image.new(
                 "RGBA", (W, H), (0, 0, 0, 0)
             )
-            glow_draw= ImageDraw.Draw(glow_img)
+            glow_draw = ImageDraw.Draw(glow_img)
             for g in range(1, 9):
                 alpha = int(204 * (1 - g/9))
                 glow_draw.rectangle(
@@ -442,25 +409,21 @@ class ThumbnailGenerator:
                     fill=(*BLUE, alpha)
                 )
             img = Image.alpha_composite(
-                img.convert("RGBA"),
-                glow_img
+                img.convert("RGBA"), glow_img
             ).convert("RGB")
             draw = ImageDraw.Draw(img)
 
             # ── Channel name ──
-            chan_x = bar_x + bar_w + (8 * S)
-            chan_y = top_y + 2
-
+            chan_x       = bar_x + bar_w + (8 * S)
+            chan_y       = top_y + 2
             channel_text = "HEAVY RAIN DEEP SLEEP"
 
-            # Shadow
             draw.text(
                 (chan_x, chan_y + 4),
                 channel_text,
                 font = f_channel,
                 fill = (0, 0, 0)
             )
-            # Main blue text
             draw.text(
                 (chan_x, chan_y),
                 channel_text,
@@ -468,7 +431,7 @@ class ThumbnailGenerator:
                 fill = BLUE
             )
 
-            # ── Rain icon top right ──
+            # ── Rain icon ──
             try:
                 icon_bbox = draw.textbbox(
                     (0, 0), "🌧️", font=f_icon
@@ -484,69 +447,83 @@ class ThumbnailGenerator:
             except Exception:
                 pass
 
-            # ════════════════════════════════
-            # BOTTOM SECTION
-            # ════════════════════════════════
+            # ── Badges ──
+            badge_pad_x  = 12 * S
+            badge_pad_y  = 5  * S
+            badge_gap    = 8  * S
+            badge_radius = 6  * S
 
-            badge_pad_x = 12 * S   # 24px
-            badge_pad_y = 5  * S   # 10px
-            badge_gap   = 8  * S   # 16px
-            badge_radius= 6  * S   # 12px
-
-            badge_bbox = draw.textbbox(
-                (0,0), "TEST", font=f_badge
+            badge_bbox   = draw.textbbox(
+                (0, 0), "TEST", font=f_badge
             )
-            badge_text_h = badge_bbox[3]-badge_bbox[1]
-            badge_h      = badge_text_h + badge_pad_y*2
+            badge_text_h = (
+                badge_bbox[3] - badge_bbox[1]
+            )
+            badge_h      = (
+                badge_text_h + badge_pad_y * 2
+            )
+            badge_y      = H - PAD_Y - badge_h
+            badge_x      = PAD_X
 
-            badge_y = H - PAD_Y - badge_h
-
-            badge_x = PAD_X
-            badges  = [
+            badges = [
                 (
                     f"⏱ {duration_str.upper()}",
                     BADGE_DUR, BADGE_DUR2
                 ),
-                ("✓ NO ADS",    BADGE_ADS, BADGE_ADS2),
-                ("😴 SLEEP AID", BADGE_SLP, BADGE_SLP2),
-                ("HD",           BADGE_HD,  BADGE_HD2),
+                (
+                    "✓ NO ADS",
+                    BADGE_ADS, BADGE_ADS2
+                ),
+                (
+                    "😴 SLEEP AID",
+                    BADGE_SLP, BADGE_SLP2
+                ),
+                (
+                    "HD",
+                    BADGE_HD,  BADGE_HD2
+                ),
             ]
 
             for badge_text, col1, col2 in badges:
                 try:
-                    tb   = draw.textbbox(
-                        (0,0), badge_text, font=f_badge
+                    tb = draw.textbbox(
+                        (0, 0),
+                        badge_text,
+                        font=f_badge
                     )
-                    tw   = tb[2] - tb[0]
+                    tw = tb[2] - tb[0]
                 except Exception:
                     tw = len(badge_text) * 13
 
                 bw = tw + badge_pad_x * 2
 
-                # Shadow
-                shadow_img = Image.new(
-                    "RGBA", (W, H), (0,0,0,0)
+                # Badge shadow
+                shadow_img  = Image.new(
+                    "RGBA", (W, H), (0, 0, 0, 0)
                 )
-                shadow_draw= ImageDraw.Draw(shadow_img)
+                shadow_draw = ImageDraw.Draw(
+                    shadow_img
+                )
                 for s in range(1, 6):
                     alpha = int(128 * (1-s/6))
                     shadow_draw.rounded_rectangle(
                         [
-                            (badge_x+s,    badge_y+s),
-                            (badge_x+bw+s, badge_y+badge_h+s)
+                            (badge_x+s,
+                             badge_y+s),
+                            (badge_x+bw+s,
+                             badge_y+badge_h+s)
                         ],
-                        radius=badge_radius,
-                        fill=(0, 0, 0, alpha)
+                        radius = badge_radius,
+                        fill   = (0, 0, 0, alpha)
                     )
                 img = Image.alpha_composite(
-                    img.convert("RGBA"),
-                    shadow_img
+                    img.convert("RGBA"), shadow_img
                 ).convert("RGB")
                 draw = ImageDraw.Draw(img)
 
                 # Badge gradient
                 badge_img  = Image.new(
-                    "RGBA", (W, H), (0,0,0,0)
+                    "RGBA", (W, H), (0, 0, 0, 0)
                 )
                 badge_draw = ImageDraw.Draw(badge_img)
 
@@ -557,14 +534,16 @@ class ThumbnailGenerator:
                     gb = int(col1[2]*(1-t)+col2[2]*t)
                     badge_draw.rectangle(
                         [
-                            (badge_x,    badge_y+gi),
-                            (badge_x+bw, badge_y+gi+1)
+                            (badge_x,
+                             badge_y+gi),
+                            (badge_x+bw,
+                             badge_y+gi+1)
                         ],
                         fill=(gr, gg, gb, 255)
                     )
 
-                # Clip to rounded rectangle
-                mask = Image.new(
+                # Clip to rounded rect
+                mask      = Image.new(
                     "L", (W, H), 0
                 )
                 mask_draw = ImageDraw.Draw(mask)
@@ -573,15 +552,16 @@ class ThumbnailGenerator:
                         (badge_x,    badge_y),
                         (badge_x+bw, badge_y+badge_h)
                     ],
-                    radius=badge_radius,
-                    fill=255
+                    radius = badge_radius,
+                    fill   = 255
                 )
                 img = Image.alpha_composite(
                     img.convert("RGBA"),
                     Image.composite(
                         badge_img,
                         Image.new(
-                            "RGBA", (W,H), (0,0,0,0)
+                            "RGBA", (W, H),
+                            (0, 0, 0, 0)
                         ),
                         mask
                     )
@@ -590,18 +570,22 @@ class ThumbnailGenerator:
 
                 # Inner highlight
                 hi_img  = Image.new(
-                    "RGBA", (W,H), (0,0,0,0)
+                    "RGBA", (W, H), (0, 0, 0, 0)
                 )
                 hi_draw = ImageDraw.Draw(hi_img)
                 hi_draw.line(
                     [
-                        (badge_x+badge_radius,
-                         badge_y+1),
-                        (badge_x+bw-badge_radius,
-                         badge_y+1)
+                        (
+                            badge_x + badge_radius,
+                            badge_y + 1
+                        ),
+                        (
+                            badge_x + bw - badge_radius,
+                            badge_y + 1
+                        )
                     ],
-                    fill=(255,255,255,38),
-                    width=2
+                    fill  = (255, 255, 255, 38),
+                    width = 2
                 )
                 img = Image.alpha_composite(
                     img.convert("RGBA"), hi_img
@@ -609,10 +593,11 @@ class ThumbnailGenerator:
                 draw = ImageDraw.Draw(img)
 
                 # Badge text
-                text_y = badge_y + badge_pad_y
-                text_x = badge_x + badge_pad_x
                 draw.text(
-                    (text_x, text_y),
+                    (
+                        badge_x + badge_pad_x,
+                        badge_y + badge_pad_y
+                    ),
                     badge_text,
                     font = f_badge,
                     fill = (255, 255, 255)
@@ -638,7 +623,6 @@ class ThumbnailGenerator:
 
             clean_ascii = clean_ascii.upper()
 
-            # Word wrap at 22 chars
             words = clean_ascii.split()
             lines = []
             line  = ""
@@ -654,11 +638,10 @@ class ThumbnailGenerator:
                 lines.append(line)
             lines = lines[:2]
 
-            line_h = int(36 * S * 1.1)  # 79px
-
-            title_bottom = badge_y - (10 * S)
-            title_total_h= len(lines) * line_h
-            title_y      = title_bottom - title_total_h
+            line_h        = int(36 * S * 1.1)
+            title_bottom  = badge_y - (10 * S)
+            title_total_h = len(lines) * line_h
+            title_y       = title_bottom - title_total_h
 
             for line_text in lines:
                 # Text shadow
@@ -674,45 +657,32 @@ class ThumbnailGenerator:
                         fill = SHADOW
                     )
 
-                # Glow
+                # Title glow
                 glow_img  = Image.new(
-                    "RGBA", (W,H), (0,0,0,0)
+                    "RGBA", (W, H), (0, 0, 0, 0)
                 )
                 glow_draw = ImageDraw.Draw(glow_img)
                 for g in range(1, 12):
                     alpha = int(128 * (1-g/12))
-                    glow_draw.text(
+                    for gx, gy in [
                         (PAD_X-g, title_y),
-                        line_text,
-                        font = f_title,
-                        fill = (30,80,180,alpha)
-                    )
-                    glow_draw.text(
                         (PAD_X+g, title_y),
-                        line_text,
-                        font = f_title,
-                        fill = (30,80,180,alpha)
-                    )
-                    glow_draw.text(
-                        (PAD_X, title_y-g),
-                        line_text,
-                        font = f_title,
-                        fill = (30,80,180,alpha)
-                    )
-                    glow_draw.text(
-                        (PAD_X, title_y+g),
-                        line_text,
-                        font = f_title,
-                        fill = (30,80,180,alpha)
-                    )
+                        (PAD_X,   title_y-g),
+                        (PAD_X,   title_y+g),
+                    ]:
+                        glow_draw.text(
+                            (gx, gy),
+                            line_text,
+                            font = f_title,
+                            fill = (30, 80, 180, alpha)
+                        )
 
                 img = Image.alpha_composite(
-                    img.convert("RGBA"),
-                    glow_img
+                    img.convert("RGBA"), glow_img
                 ).convert("RGB")
                 draw = ImageDraw.Draw(img)
 
-                # Main white title text
+                # Main title text
                 draw.text(
                     (PAD_X, title_y),
                     line_text,
@@ -732,22 +702,18 @@ class ThumbnailGenerator:
                     f"PART {part_num} "
                     f"OF {total_parts}"
                 )
-
                 part_bottom = (
                     badge_y
-                    - (10*S)
+                    - (10 * S)
                     - title_total_h
-                    - (10*S)
+                    - (10 * S)
                 )
-
-                # Shadow
                 draw.text(
-                    (PAD_X, part_bottom+4),
+                    (PAD_X, part_bottom + 4),
                     part_text,
                     font = f_part,
                     fill = (0, 0, 20)
                 )
-                # Blue text
                 draw.text(
                     (PAD_X, part_bottom),
                     part_text,
@@ -755,7 +721,7 @@ class ThumbnailGenerator:
                     fill = BLUE
                 )
 
-            # ── Save final image ──
+            # ── Save ──
             img.save(
                 output_path,
                 "JPEG",
