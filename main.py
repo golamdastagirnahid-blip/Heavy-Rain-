@@ -1,11 +1,7 @@
 """
 Heavy Rain Deep Sleep - YouTube Automation
-Main entry point
-Picks random audio from Google Drive folder
-Gets stock footage from Pexels/Pixabay
-Loops footage over audio
-Uploads to YouTube
-Humanized upload times (1-90 min random delay)
+One part per trigger - stays under 6 hour limit
+Random delay: 5-30 minutes
 """
 
 import os
@@ -13,6 +9,7 @@ import sys
 import time
 import random
 import glob
+import json
 from datetime import datetime
 
 from src.database            import Database
@@ -28,6 +25,12 @@ from src.uploader            import VideoUploader
 # Max 4 hours per part
 MAX_PART_SECONDS = 4 * 60 * 60
 
+# State file to track multi-part progress
+STATE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "state.json"
+)
+
 
 def format_duration(seconds):
     hours   = int(seconds // 3600)
@@ -37,11 +40,9 @@ def format_duration(seconds):
 
 def humanize_start():
     """
-    Wait a random time before starting
-    Makes upload times look natural
-    Between 1 and 90 minutes random delay
+    Random delay between 5-30 minutes
     """
-    wait_minutes = random.randint(1, 90)
+    wait_minutes = random.randint(5, 30)
     wait_seconds = wait_minutes * 60
 
     print(f"⏰ Humanizing start time...")
@@ -53,10 +54,6 @@ def humanize_start():
         f"   Current time  : "
         f"{datetime.now().strftime('%H:%M:%S')}"
     )
-    print(
-        f"   Will start at : "
-        f"{wait_minutes} min from now"
-    )
 
     time.sleep(wait_seconds)
 
@@ -66,6 +63,32 @@ def humanize_start():
     )
 
 
+def load_state():
+    """
+    Load multi-part state
+    Tracks which part to upload next
+    """
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_state(state):
+    """Save multi-part state"""
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=4)
+
+
+def clear_state():
+    """Clear state after all parts done"""
+    if os.path.exists(STATE_FILE):
+        os.remove(STATE_FILE)
+
+
 def main():
     print("=" * 60)
     print("🌧️  Heavy Rain Deep Sleep Automation")
@@ -73,10 +96,11 @@ def main():
         f"   Scheduled : "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
+    print("   Mode      : Single part per trigger")
     print("=" * 60)
 
     # ── Humanize Start Time ──
-    # Random delay between 1-90 minutes
+    # Random delay between 5-30 minutes
     humanize_start()
 
     print(
@@ -110,32 +134,155 @@ def main():
 
     uploader = VideoUploader(youtube)
 
-    # ── Load Random Audio ──
-    print("\n📥 Loading random audio...")
-    audio_path, audio_name = loader.download_random()
-    if not audio_path:
-        print("❌ Audio download failed!")
-        sys.exit(1)
+    # ── Check for existing multi-part state ──
+    state = load_state()
 
-    print(f"   ✅ Using: {audio_name}")
+    if state:
+        # ────────────────────────────────────
+        # RESUME: Continue uploading next part
+        # ────────────────────────────────────
+        print("\n📋 Resuming multi-part upload...")
+        print(
+            f"   Audio     : {state['audio_name']}"
+        )
+        print(
+            f"   Part      : "
+            f"{state['next_part']}/"
+            f"{state['total_parts']}"
+        )
+        print(
+            f"   Title     : {state['ai_title']}"
+        )
 
-    # ── Get Audio Duration ──
-    print("\n⏱️ Checking audio duration...")
-    audio_duration = processor.get_duration(audio_path)
-    if audio_duration == 0:
-        print("❌ Could not get audio duration!")
-        sys.exit(1)
+        audio_path     = state["audio_path"]
+        audio_name     = state["audio_name"]
+        audio_duration = state["audio_duration"]
+        num_parts      = state["total_parts"]
+        part_num       = state["next_part"]
+        ai_title       = state["ai_title"]
+        ai_desc        = state["ai_desc"]
+        video_id       = state["video_id"]
+        footage_url    = state.get("footage_url", "")
 
+        # Re-download audio if not cached
+        if not os.path.exists(audio_path):
+            print(
+                "\n📥 Re-downloading audio..."
+            )
+            audio_path, audio_name = (
+                loader.download_random()
+            )
+            if not audio_path:
+                print("❌ Audio re-download failed!")
+                clear_state()
+                sys.exit(1)
+
+    else:
+        # ────────────────────────────────────
+        # NEW: Start fresh upload
+        # ────────────────────────────────────
+        print("\n🆕 Starting new upload...")
+
+        # ── Load Random Audio ──
+        print("\n📥 Loading random audio...")
+        audio_path, audio_name = (
+            loader.download_random()
+        )
+        if not audio_path:
+            print("❌ Audio download failed!")
+            sys.exit(1)
+
+        print(f"   ✅ Using: {audio_name}")
+
+        # ── Get Audio Duration ──
+        print("\n⏱️ Checking audio duration...")
+        audio_duration = processor.get_duration(
+            audio_path
+        )
+        if audio_duration == 0:
+            print("❌ Could not get audio duration!")
+            sys.exit(1)
+
+        print(
+            f"   Duration: "
+            f"{format_duration(audio_duration)}"
+        )
+
+        # ── Calculate Parts ──
+        num_parts = processor.calculate_parts(
+            audio_duration
+        )
+        print(f"   Parts   : {num_parts}")
+
+        # ── Generate AI Metadata ──
+        print("\n🤖 Generating AI metadata...")
+        ai_title, ai_desc = ai.generate_metadata(
+            audio_name, None, num_parts
+        )
+        print(f"   ✅ Title: {ai_title}")
+
+        # ── Generate Unique Video ID ──
+        video_id = (
+            f"rain_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+
+        # First part
+        part_num    = 1
+        footage_url = ""
+
+        # ── Save State for future parts ──
+        if num_parts > 1:
+            print(
+                f"\n📋 Multi-part video detected"
+            )
+            print(
+                f"   Will upload part 1 now"
+            )
+            print(
+                f"   Parts 2-{num_parts} in "
+                f"next triggers"
+            )
+
+            save_state({
+                "audio_path"    : audio_path,
+                "audio_name"    : audio_name,
+                "audio_duration": audio_duration,
+                "total_parts"   : num_parts,
+                "next_part"     : 2,
+                "ai_title"      : ai_title,
+                "ai_desc"       : ai_desc,
+                "video_id"      : video_id,
+                "footage_url"   : "",
+            })
+
+    # ════════════════════════════════════
+    # PROCESS SINGLE PART
+    # ════════════════════════════════════
+
+    print(f"\n{'='*60}")
     print(
-        f"   Duration: "
-        f"{format_duration(audio_duration)}"
+        f"🎬 Processing Part "
+        f"{part_num}/{num_parts}"
     )
+    print(f"{'='*60}")
 
-    # ── Calculate Parts ──
-    num_parts = processor.calculate_parts(
+    start_sec     = (part_num - 1) * MAX_PART_SECONDS
+    end_sec       = min(
+        part_num * MAX_PART_SECONDS,
         audio_duration
     )
-    print(f"   Parts   : {num_parts}")
+    part_duration = end_sec - start_sec
+
+    print(
+        f"   ⏱️  "
+        f"{format_duration(start_sec)} → "
+        f"{format_duration(end_sec)}"
+    )
+    print(
+        f"   Duration: "
+        f"{format_duration(part_duration)}"
+    )
 
     # ── Get Stock Footage ──
     print("\n🎬 Getting stock footage...")
@@ -146,166 +293,148 @@ def main():
 
     print(f"   ✅ Footage: {footage_path}")
 
-    # ── Generate Unique Video ID ──
-    video_id = (
-        f"rain_"
-        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # ── Generate Thumbnail ──
+    # Takes screenshot from the stock footage
+    print("\n🖼️ Generating thumbnail...")
+    thumb_path = thumb_gen.generate(
+        title        = ai_title,
+        footage_path = footage_path,
+        part_num     = part_num
+                       if num_parts > 1
+                       else None,
+        total_parts  = num_parts
+                       if num_parts > 1
+                       else None,
+        duration_str = format_duration(
+            part_duration
+        )
     )
 
-    # ── Generate AI Metadata ──
-    print("\n🤖 Generating AI metadata...")
-    ai_title, ai_desc = ai.generate_metadata(
-        audio_name, None, num_parts
+    if not thumb_path:
+        print("   ⚠️ Thumbnail failed")
+
+    # ── Create Video ──
+    print("\n🎥 Creating video...")
+    print(
+        f"   This may take "
+        f"{int(part_duration/3600)}+ hours..."
     )
-    print(f"   ✅ Title: {ai_title}")
+    part_output_id = (
+        f"{video_id}_part{part_num}"
+    )
 
-    # ── Process Each Part ──
-    success_count = 0
+    video_path = processor.create_video(
+        audio_path     = audio_path,
+        footage_path   = footage_path,
+        output_id      = part_output_id,
+        start_sec      = start_sec,
+        end_sec        = end_sec,
+        thumbnail_path = thumb_path
+    )
 
-    for part_num in range(1, num_parts + 1):
+    if not video_path:
+        print("❌ Video creation failed!")
+        sys.exit(1)
 
-        print(f"\n{'='*60}")
-        print(f"🎬 Part {part_num}/{num_parts}")
-        print(f"{'='*60}")
+    print(f"   ✅ Video: {video_path}")
 
-        start_sec     = (part_num - 1) * MAX_PART_SECONDS
-        end_sec       = min(
-            part_num * MAX_PART_SECONDS,
-            audio_duration
+    # ── Build Title & Description ──
+    if num_parts > 1:
+        part_title = (
+            f"{ai_title} "
+            f"| Part {part_num}/{num_parts}"
         )
-        part_duration = end_sec - start_sec
+    else:
+        part_title = ai_title
 
+    part_desc = (
+        f"{ai_desc}\n\n"
+        f"⏱️ Duration: "
+        f"{format_duration(part_duration)}\n"
+    )
+    if num_parts > 1:
+        part_desc += (
+            f"📌 Part {part_num} "
+            f"of {num_parts}\n"
+        )
+
+    # ── Upload to YouTube ──
+    print(f"\n📤 Uploading to YouTube...")
+    print(
+        f"   Title: {part_title[:60]}..."
+        if len(part_title) > 60
+        else f"   Title: {part_title}"
+    )
+
+    result = uploader.upload(
+        video_path     = video_path,
+        title          = part_title,
+        description    = part_desc,
+        thumbnail_path = thumb_path,
+        privacy        = "public",
+    )
+
+    if result and result.get("success"):
         print(
-            f"   ⏱️  "
-            f"{format_duration(start_sec)} → "
-            f"{format_duration(end_sec)}"
+            f"\n   ✅ UPLOADED: "
+            f"{result['url']}"
         )
 
-        # ── Generate Thumbnail ──
-        print("\n🖼️ Generating thumbnail...")
-        thumb_path = thumb_gen.generate(
-            title        = ai_title,
-            footage_path = footage_path,
-            part_num     = part_num
-                           if num_parts > 1
-                           else None,
-            total_parts  = num_parts
-                           if num_parts > 1
-                           else None,
-            duration_str = format_duration(
-                part_duration
-            )
+        # Mark in database
+        db.mark_uploaded(
+            f"{part_output_id}",
+            {
+                "title"  : part_title,
+                "url"    : result["url"],
+                "audio"  : audio_name,
+                "part"   : part_num,
+                "of"     : num_parts,
+            }
         )
+    else:
+        print(f"\n   ❌ Upload failed!")
 
-        if not thumb_path:
-            print("   ⚠️ Thumbnail failed - continuing")
+    # ── Update state for next part ──
+    if num_parts > 1:
+        next_part = part_num + 1
 
-        # ── Create Video ──
-        print("\n🎥 Creating video...")
-        part_output_id = f"{video_id}_part{part_num}"
-
-        video_path = processor.create_video(
-            audio_path     = audio_path,
-            footage_path   = footage_path,
-            output_id      = part_output_id,
-            start_sec      = start_sec,
-            end_sec        = end_sec,
-            thumbnail_path = thumb_path
-        )
-
-        if not video_path:
+        if next_part <= num_parts:
+            # More parts remaining
+            save_state({
+                "audio_path"    : audio_path,
+                "audio_name"    : audio_name,
+                "audio_duration": audio_duration,
+                "total_parts"   : num_parts,
+                "next_part"     : next_part,
+                "ai_title"      : ai_title,
+                "ai_desc"       : ai_desc,
+                "video_id"      : video_id,
+                "footage_url"   : "",
+            })
             print(
-                f"❌ Video creation failed "
-                f"for part {part_num}"
-            )
-            continue
-
-        print(f"   ✅ Video: {video_path}")
-
-        # ── Build Title & Description ──
-        if num_parts > 1:
-            part_title = (
-                f"{ai_title} "
-                f"| Part {part_num}/{num_parts}"
+                f"\n📋 State saved: "
+                f"Part {next_part}/{num_parts} "
+                f"next trigger"
             )
         else:
-            part_title = ai_title
-
-        part_desc = (
-            f"{ai_desc}\n\n"
-            f"⏱️ Duration: "
-            f"{format_duration(part_duration)}\n"
-        )
-
-        if num_parts > 1:
-            part_desc += (
-                f"📌 Part {part_num} "
-                f"of {num_parts}\n"
-            )
-
-        # ── Upload to YouTube ──
-        print(f"\n📤 Uploading Part {part_num}...")
-        print(
-            f"   Title: {part_title[:60]}..."
-            if len(part_title) > 60
-            else f"   Title: {part_title}"
-        )
-
-        result = uploader.upload(
-            video_path     = video_path,
-            title          = part_title,
-            description    = part_desc,
-            thumbnail_path = thumb_path,
-            privacy        = "public",
-        )
-
-        if result and result.get("success"):
+            # All parts done
+            clear_state()
             print(
-                f"   ✅ Uploaded: "
-                f"{result['url']}"
+                f"\n✅ All {num_parts} parts "
+                f"uploaded!"
             )
-            success_count += 1
+    else:
+        # Single video - no state needed
+        clear_state()
 
-            # Mark in database
-            db.mark_uploaded(
-                f"{part_output_id}",
-                {
-                    "title"  : part_title,
-                    "url"    : result["url"],
-                    "audio"  : audio_name,
-                    "part"   : part_num,
-                    "of"     : num_parts,
-                }
-            )
-        else:
-            print(f"   ❌ Part {part_num} upload failed")
+    # ── Cleanup ──
+    print("\n🧹 Cleaning up...")
 
-        # ── Cleanup Part Video ──
-        if video_path and os.path.exists(video_path):
-            try:
-                os.remove(video_path)
-                print("   🗑️ Part video deleted")
-            except Exception:
-                pass
-
-        # ── Humanized Wait Between Parts ──
-        if part_num < num_parts:
-            wait = random.randint(60, 300)
-            print(
-                f"\n⏳ Waiting "
-                f"{wait // 60}m {wait % 60}s "
-                f"before next part..."
-            )
-            time.sleep(wait)
-
-    # ── Final Cleanup ──
-    print("\n🧹 Final cleanup...")
-
-    # Delete audio
-    if audio_path and os.path.exists(audio_path):
+    # Delete video file
+    if video_path and os.path.exists(video_path):
         try:
-            os.remove(audio_path)
-            print("   🗑️ Audio deleted")
+            os.remove(video_path)
+            print("   🗑️ Video deleted")
         except Exception:
             pass
 
@@ -323,30 +452,62 @@ def main():
             os.remove(f)
         except Exception:
             pass
-    print("   🗑️ Thumbnails deleted")
-
-    # Delete temp frames
     for f in glob.glob("thumbnails/*.png"):
         try:
             os.remove(f)
         except Exception:
             pass
+    print("   🗑️ Thumbnails deleted")
 
-    # ── Final Summary ──
+    # Do NOT delete audio if more parts remain
+    state = load_state()
+    if not state:
+        # All parts done - delete audio
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.remove(audio_path)
+                print("   🗑️ Audio deleted")
+            except Exception:
+                pass
+
+    # ── Summary ──
     print("\n" + "=" * 60)
-    print(
-        f"✅ Done! "
-        f"{success_count}/{num_parts} parts uploaded"
-    )
+
+    if result and result.get("success"):
+        print(
+            f"✅ Part {part_num}/{num_parts} "
+            f"uploaded successfully!"
+        )
+        print(f"🔗 {result['url']}")
+    else:
+        print(
+            f"❌ Part {part_num}/{num_parts} "
+            f"failed"
+        )
+
     stats = db.get_statistics()
     print(
         f"📊 Total all time : "
-        f"{stats.get('total_uploads', 0)} videos"
+        f"{stats.get('total_uploads', 0)}"
     )
     print(
         f"📅 Today          : "
-        f"{db.get_today_count()}/3 videos"
+        f"{db.get_today_count()}/3"
     )
+
+    remaining = load_state()
+    if remaining:
+        print(
+            f"📋 Next trigger   : "
+            f"Part {remaining['next_part']}/"
+            f"{remaining['total_parts']}"
+        )
+    else:
+        print(
+            f"📋 Next trigger   : "
+            f"New random audio"
+        )
+
     print(
         f"🕐 Finished at    : "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
