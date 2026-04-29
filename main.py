@@ -17,6 +17,7 @@ from src.audio_loader        import AudioLoader
 from src.footage_downloader  import FootageDownloader
 from src.video_processor     import VideoProcessor
 from src.ai_generator        import AIGenerator
+from src.thumbnail_generator import ThumbnailGenerator
 from src.auth                import YouTubeAuth
 from src.uploader            import VideoUploader
 
@@ -99,6 +100,7 @@ def main():
     print("=" * 60)
 
     # ── Humanize Start Time ──
+    # Random delay between 5-30 minutes
     humanize_start()
 
     print(
@@ -107,12 +109,12 @@ def main():
     )
 
     # ── Initialize Components ──
-    # No ThumbnailGenerator needed
     db        = Database()
     loader    = AudioLoader()
     footage   = FootageDownloader()
     processor = VideoProcessor()
     ai        = AIGenerator()
+    thumb_gen = ThumbnailGenerator()
     auth      = YouTubeAuth()
 
     # ── Check Daily Limit ──
@@ -160,10 +162,13 @@ def main():
         ai_title       = state["ai_title"]
         ai_desc        = state["ai_desc"]
         video_id       = state["video_id"]
+        footage_url    = state.get("footage_url", "")
 
         # Re-download audio if not cached
         if not os.path.exists(audio_path):
-            print("\n📥 Re-downloading audio...")
+            print(
+                "\n📥 Re-downloading audio..."
+            )
             audio_path, audio_name = (
                 loader.download_random()
             )
@@ -222,7 +227,9 @@ def main():
             f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         )
 
-        part_num = 1
+        # First part
+        part_num    = 1
+        footage_url = ""
 
         # ── Save State for future parts ──
         if num_parts > 1:
@@ -246,6 +253,7 @@ def main():
                 "ai_title"      : ai_title,
                 "ai_desc"       : ai_desc,
                 "video_id"      : video_id,
+                "footage_url"   : "",
             })
 
     # ════════════════════════════════════
@@ -285,6 +293,26 @@ def main():
 
     print(f"   ✅ Footage: {footage_path}")
 
+    # ── Generate Thumbnail ──
+    # Takes screenshot from the stock footage
+    print("\n🖼️ Generating thumbnail...")
+    thumb_path = thumb_gen.generate(
+        title        = ai_title,
+        footage_path = footage_path,
+        part_num     = part_num
+                       if num_parts > 1
+                       else None,
+        total_parts  = num_parts
+                       if num_parts > 1
+                       else None,
+        duration_str = format_duration(
+            part_duration
+        )
+    )
+
+    if not thumb_path:
+        print("   ⚠️ Thumbnail failed")
+
     # ── Create Video ──
     print("\n🎥 Creating video...")
     print(
@@ -301,7 +329,7 @@ def main():
         output_id      = part_output_id,
         start_sec      = start_sec,
         end_sec        = end_sec,
-        thumbnail_path = None  # no thumbnail
+        thumbnail_path = thumb_path
     )
 
     if not video_path:
@@ -337,13 +365,12 @@ def main():
         if len(part_title) > 60
         else f"   Title: {part_title}"
     )
-    print("   🖼️ No thumbnail - YouTube auto")
 
     result = uploader.upload(
         video_path     = video_path,
         title          = part_title,
         description    = part_desc,
-        thumbnail_path = None,  # no thumbnail
+        thumbnail_path = thumb_path,
         privacy        = "public",
     )
 
@@ -372,6 +399,7 @@ def main():
         next_part = part_num + 1
 
         if next_part <= num_parts:
+            # More parts remaining
             save_state({
                 "audio_path"    : audio_path,
                 "audio_name"    : audio_name,
@@ -381,6 +409,7 @@ def main():
                 "ai_title"      : ai_title,
                 "ai_desc"       : ai_desc,
                 "video_id"      : video_id,
+                "footage_url"   : "",
             })
             print(
                 f"\n📋 State saved: "
@@ -388,12 +417,14 @@ def main():
                 f"next trigger"
             )
         else:
+            # All parts done
             clear_state()
             print(
                 f"\n✅ All {num_parts} parts "
                 f"uploaded!"
             )
     else:
+        # Single video - no state needed
         clear_state()
 
     # ── Cleanup ──
@@ -408,16 +439,14 @@ def main():
             pass
 
     # Delete footage
-    if footage_path and os.path.exists(
-        footage_path
-    ):
+    if footage_path and os.path.exists(footage_path):
         try:
             os.remove(footage_path)
             print("   🗑️ Footage deleted")
         except Exception:
             pass
 
-    # Delete thumbnails if any exist
+    # Delete thumbnails
     for f in glob.glob("thumbnails/*.jpg"):
         try:
             os.remove(f)
@@ -428,13 +457,13 @@ def main():
             os.remove(f)
         except Exception:
             pass
+    print("   🗑️ Thumbnails deleted")
 
-    # Delete audio only if all parts done
+    # Do NOT delete audio if more parts remain
     state = load_state()
     if not state:
-        if audio_path and os.path.exists(
-            audio_path
-        ):
+        # All parts done - delete audio
+        if audio_path and os.path.exists(audio_path):
             try:
                 os.remove(audio_path)
                 print("   🗑️ Audio deleted")
