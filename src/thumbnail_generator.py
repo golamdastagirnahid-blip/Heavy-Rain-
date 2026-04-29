@@ -1,15 +1,15 @@
 """
 Thumbnail Generator
-100% pixel accurate match to HTML preview
-Font: Arial Black equivalent (DejaVuSans-Bold)
+Uses Pexels still image as background
+Same overlay + text style
 Canvas: 1280x720
-All values scaled from 640x360 HTML preview x2
 """
 
 import os
 import re
 import json
 import random
+import requests
 import subprocess
 from PIL import (
     Image,
@@ -27,7 +27,7 @@ THUMB_DIR = os.path.join(
 os.makedirs(THUMB_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────
-# EXACT COLORS FROM HTML
+# COLORS
 # ─────────────────────────────────────────
 
 BG_1 = (10,  22,  40)
@@ -39,16 +39,6 @@ BLUE   = (65,  145, 255)
 WHITE  = (240, 245, 255)
 SHADOW = (0,   5,   16)
 
-BOT_G1 = (5,  12, 30,   0)
-BOT_G2 = (5,  12, 30, 128)
-BOT_G3 = (5,  12, 30, 217)
-BOT_G4 = (3,   8, 20, 247)
-
-TOP_G1 = (5,  12, 30,   0)
-TOP_G2 = (5,  12, 30, 128)
-
-VIG    = (0,   0, 15, 179)
-
 BADGE_DUR  = (37,  99,  235)
 BADGE_ADS  = (22,  163,  74)
 BADGE_SLP  = (124,  58, 237)
@@ -58,6 +48,16 @@ BADGE_DUR2 = (29,  78,  216)
 BADGE_ADS2 = (21, 128,  61)
 BADGE_SLP2 = (109, 40,  217)
 BADGE_HD2  = (185, 28,  28)
+
+# Pexels search terms for rain thumbnails
+PEXELS_QUERIES = [
+    "rain window night",
+    "rain forest nature",
+    "rainy night city",
+    "rain drops glass",
+    "storm rain dark",
+    "rain nature dark",
+]
 
 
 class ThumbnailGenerator:
@@ -76,21 +76,30 @@ class ThumbnailGenerator:
             THUMB_DIR,
             f"thumb_{part_num or 1}.jpg"
         )
-        frame_path = os.path.join(
+        bg_path = os.path.join(
             THUMB_DIR,
-            f"frame_{part_num or 1}.jpg"
+            f"bg_{part_num or 1}.jpg"
         )
 
-        bg = None
-        if footage_path and os.path.exists(
-            footage_path
-        ):
+        # ── Try Pexels image first ──
+        bg = self._get_pexels_image(bg_path)
+
+        # ── Fallback to video frame ──
+        if not bg and footage_path:
+            print(
+                "   📸 Pexels failed, "
+                "trying video frame..."
+            )
             bg = self._extract_frame(
-                footage_path, frame_path
+                footage_path, bg_path
             )
 
+        # ── Final fallback: generated bg ──
         if not bg:
-            bg = self._make_bg(frame_path)
+            print(
+                "   🎨 Using generated background"
+            )
+            bg = self._make_bg(bg_path)
 
         result = self._build(
             bg_path      = bg,
@@ -113,7 +122,123 @@ class ThumbnailGenerator:
         return None
 
     # ─────────────────────────────────────
-    # BACKGROUND
+    # PEXELS IMAGE
+    # ─────────────────────────────────────
+
+    def _get_pexels_image(self, output_path):
+        """
+        Download a still image from Pexels
+        Much more reliable than video frame
+        Always bright and clear
+        """
+        try:
+            api_key = os.environ.get(
+                "PEXELS_API_KEY", ""
+            )
+            if not api_key:
+                print(
+                    "   ⚠️ No PEXELS_API_KEY"
+                )
+                return None
+
+            # Pick random search query
+            query = random.choice(PEXELS_QUERIES)
+            print(
+                f"   🔍 Pexels image: '{query}'"
+            )
+
+            # Search Pexels photos
+            headers = {
+                "Authorization": api_key
+            }
+            params = {
+                "query"       : query,
+                "per_page"    : 15,
+                "orientation" : "landscape",
+            }
+
+            r = requests.get(
+                "https://api.pexels.com/v1/search",
+                headers = headers,
+                params  = params,
+                timeout = 30
+            )
+
+            if r.status_code != 200:
+                print(
+                    f"   ⚠️ Pexels API error: "
+                    f"{r.status_code}"
+                )
+                return None
+
+            data   = r.json()
+            photos = data.get("photos", [])
+
+            if not photos:
+                print("   ⚠️ No Pexels photos found")
+                return None
+
+            # Pick random photo
+            photo = random.choice(photos)
+
+            # Get large landscape image
+            img_url = (
+                photo["src"].get("large2x")
+                or photo["src"].get("large")
+                or photo["src"].get("original")
+            )
+
+            if not img_url:
+                print("   ⚠️ No image URL found")
+                return None
+
+            print(
+                f"   ⬇️ Downloading Pexels image..."
+            )
+
+            # Download image
+            img_r = requests.get(
+                img_url,
+                timeout = 30,
+                stream  = True
+            )
+
+            if img_r.status_code != 200:
+                print(
+                    f"   ⚠️ Image download failed: "
+                    f"{img_r.status_code}"
+                )
+                return None
+
+            with open(output_path, "wb") as f:
+                for chunk in img_r.iter_content(
+                    chunk_size=8192
+                ):
+                    f.write(chunk)
+
+            # Verify image
+            img  = Image.open(output_path)
+            img  = img.convert("RGB")
+            img  = img.resize(
+                (1280, 720), Image.LANCZOS
+            )
+            img.save(
+                output_path, "JPEG", quality=98
+            )
+
+            size = os.path.getsize(output_path)
+            print(
+                f"   ✅ Pexels image: "
+                f"{size // 1024} KB"
+            )
+            return output_path
+
+        except Exception as e:
+            print(f"   ⚠️ Pexels image error: {e}")
+            return None
+
+    # ─────────────────────────────────────
+    # VIDEO FRAME (fallback)
     # ─────────────────────────────────────
 
     def _extract_frame(
@@ -121,10 +246,10 @@ class ThumbnailGenerator:
     ):
         """
         Extract random frame from stock footage
-        MUST take screenshot from actual video
+        Fallback if Pexels fails
         """
         if not footage_path:
-            print("   ⚠️ No footage path provided")
+            print("   ⚠️ No footage path")
             return None
 
         if not os.path.exists(footage_path):
@@ -135,7 +260,6 @@ class ThumbnailGenerator:
             return None
 
         try:
-            # Get video duration
             cmd = [
                 "ffprobe", "-v", "quiet",
                 "-print_format", "json",
@@ -147,18 +271,14 @@ class ThumbnailGenerator:
             )
             d   = json.loads(r.stdout)
             dur = float(d["format"]["duration"])
-
-            # Pick random timestamp 20%-80%
-            ts = random.uniform(
+            ts  = random.uniform(
                 dur * 0.2, dur * 0.8
             )
 
             print(
-                f"   📸 Taking screenshot at "
-                f"{ts:.1f}s from footage"
+                f"   📸 Video frame at {ts:.1f}s"
             )
 
-            # Extract frame at high quality
             cmd = [
                 "ffmpeg", "-y",
                 "-ss", str(ts),
@@ -166,7 +286,8 @@ class ThumbnailGenerator:
                 "-vframes", "1",
                 "-vf", (
                     "scale=1280:720:"
-                    "force_original_aspect_ratio=increase,"
+                    "force_original_aspect_ratio"
+                    "=increase,"
                     "crop=1280:720"
                 ),
                 "-q:v", "1",
@@ -185,7 +306,7 @@ class ThumbnailGenerator:
                 return None
 
             if not os.path.exists(frame_path):
-                print("   ⚠️ Frame file not created")
+                print("   ⚠️ Frame not created")
                 return None
 
             size = os.path.getsize(frame_path)
@@ -194,8 +315,7 @@ class ThumbnailGenerator:
                 return None
 
             print(
-                f"   ✅ Screenshot taken: "
-                f"{size // 1024} KB"
+                f"   ✅ Frame: {size // 1024} KB"
             )
             return frame_path
 
@@ -203,13 +323,14 @@ class ThumbnailGenerator:
             print(f"   ⚠️ Frame error: {e}")
             return None
 
+    # ─────────────────────────────────────
+    # GENERATED BG (final fallback)
+    # ─────────────────────────────────────
+
     def _make_bg(self, output_path):
         """
-        Create background matching HTML CSS:
-        background: linear-gradient(135deg,
-            #0a1628 0%, #0d2040 30%,
-            #0a1830 60%, #060e1e 100%)
-        Plus rain streaks
+        Generated dark rain background
+        Last resort fallback
         """
         try:
             W, H = 1280, 720
@@ -222,25 +343,44 @@ class ThumbnailGenerator:
 
                     if t < 0.30:
                         p = t / 0.30
-                        r = int(BG_1[0]*(1-p)+BG_2[0]*p)
-                        g = int(BG_1[1]*(1-p)+BG_2[1]*p)
-                        b = int(BG_1[2]*(1-p)+BG_2[2]*p)
+                        r = int(
+                            BG_1[0]*(1-p)+BG_2[0]*p
+                        )
+                        g = int(
+                            BG_1[1]*(1-p)+BG_2[1]*p
+                        )
+                        b = int(
+                            BG_1[2]*(1-p)+BG_2[2]*p
+                        )
                     elif t < 0.60:
                         p = (t-0.30) / 0.30
-                        r = int(BG_2[0]*(1-p)+BG_3[0]*p)
-                        g = int(BG_2[1]*(1-p)+BG_3[1]*p)
-                        b = int(BG_2[2]*(1-p)+BG_3[2]*p)
+                        r = int(
+                            BG_2[0]*(1-p)+BG_3[0]*p
+                        )
+                        g = int(
+                            BG_2[1]*(1-p)+BG_3[1]*p
+                        )
+                        b = int(
+                            BG_2[2]*(1-p)+BG_3[2]*p
+                        )
                     else:
                         p = (t-0.60) / 0.40
-                        r = int(BG_3[0]*(1-p)+BG_4[0]*p)
-                        g = int(BG_3[1]*(1-p)+BG_4[1]*p)
-                        b = int(BG_3[2]*(1-p)+BG_4[2]*p)
+                        r = int(
+                            BG_3[0]*(1-p)+BG_4[0]*p
+                        )
+                        g = int(
+                            BG_3[1]*(1-p)+BG_4[1]*p
+                        )
+                        b = int(
+                            BG_3[2]*(1-p)+BG_4[2]*p
+                        )
 
                     draw.rectangle(
                         [(x, y), (x+3, y)],
                         fill=(r, g, b)
                     )
 
+            # Rain streaks
             for _ in range(500):
                 x   = random.randint(0, W)
                 y   = random.randint(-50, H)
@@ -261,7 +401,9 @@ class ThumbnailGenerator:
 
         except Exception as e:
             print(f"   ⚠️ BG error: {e}")
-            img = Image.new("RGB", (1280, 720), BG_1)
+            img = Image.new(
+                "RGB", (1280, 720), BG_1
+            )
             img.save(output_path, "JPEG", quality=98)
             return output_path
 
@@ -279,10 +421,7 @@ class ThumbnailGenerator:
         duration_str = ""
     ):
         """
-        Build thumbnail exactly matching HTML
-        All measurements scaled x2 from HTML
-        HTML preview is 640x360
-        Output is 1280x720
+        Build thumbnail with overlays and text
         """
         try:
             W, H = 1280, 720
@@ -295,34 +434,40 @@ class ThumbnailGenerator:
                 (W, H), Image.LANCZOS
             )
 
+            # ── Lighter color grade ──
+            # Keep image bright and visible
             img_rgb = img.convert("RGB")
             img_rgb = ImageEnhance.Brightness(
                 img_rgb
-            ).enhance(0.80)
+            ).enhance(0.90)   # 0.80 → 0.90 brighter
             img_rgb = ImageEnhance.Contrast(
                 img_rgb
-            ).enhance(1.15)
+            ).enhance(1.10)   # 1.15 → 1.10
+            img_rgb = ImageEnhance.Saturation(
+                img_rgb
+            ).enhance(1.20)   # boost colors
             img  = img_rgb.convert("RGBA")
             draw = ImageDraw.Draw(img)
 
             # ── Bottom gradient ──
-            bot_start = H - int(H * 0.75)
-            bot_h     = int(H * 0.75)
+            # Lighter than before so image shows
+            bot_start = H - int(H * 0.60)
+            bot_h     = int(H * 0.60)
 
             for i in range(bot_h):
                 t = i / bot_h
 
                 if t < 0.30:
                     p = t / 0.30
-                    a = int(p * 128)
+                    a = int(p * 80)      # was 128
                     c = (5, 12, 30, a)
                 elif t < 0.60:
                     p = (t - 0.30) / 0.30
-                    a = int(128 + p * 89)
+                    a = int(80 + p * 80) # was 128+89
                     c = (5, 12, 30, a)
                 else:
                     p = (t - 0.60) / 0.40
-                    a = int(217 + p * 30)
+                    a = int(160 + p * 60)# was 217+30
                     r = int(5  - p * 2)
                     g = int(12 - p * 4)
                     b = int(30 - p * 10)
@@ -336,32 +481,32 @@ class ThumbnailGenerator:
                     fill=c
                 )
 
-            # ── Top gradient ──
-            top_h = int(H * 0.35)
+            # ── Top gradient (lighter) ──
+            top_h = int(H * 0.25)  # was 0.35
 
             for i in range(top_h):
                 t = 1 - (i / top_h)
-                a = int(t * 128)
+                a = int(t * 80)    # was 128
                 draw.rectangle(
                     [(0, i), (W, i+1)],
                     fill=(5, 12, 30, a)
                 )
 
-            # ── Left vignette ──
-            vig_w = int(W * 0.30)
+            # ── Left vignette (lighter) ──
+            vig_w = int(W * 0.25)  # was 0.30
 
             for i in range(vig_w):
                 t = 1 - (i / vig_w)
-                a = int(t * 179)
+                a = int(t * 120)   # was 179
                 draw.rectangle(
                     [(i, 0), (i+1, H)],
                     fill=(0, 0, 15, a)
                 )
 
-            # ── Right vignette ──
+            # ── Right vignette (lighter) ──
             for i in range(vig_w):
                 t = 1 - (i / vig_w)
-                a = int(t * 179)
+                a = int(t * 120)   # was 179
                 draw.rectangle(
                     [(W-1-i, 0), (W-i, H)],
                     fill=(0, 0, 15, a)
@@ -394,7 +539,7 @@ class ThumbnailGenerator:
                 fill=BLUE
             )
 
-            # ── Bar glow ──
+            # Bar glow
             glow_img  = Image.new(
                 "RGBA", (W, H), (0, 0, 0, 0)
             )
@@ -403,8 +548,10 @@ class ThumbnailGenerator:
                 alpha = int(204 * (1 - g/9))
                 glow_draw.rectangle(
                     [
-                        (bar_x-g,       top_y-g),
-                        (bar_x+bar_w+g, top_y+bar_h+g)
+                        (bar_x-g,
+                         top_y-g),
+                        (bar_x+bar_w+g,
+                         top_y+bar_h+g)
                     ],
                     fill=(*BLUE, alpha)
                 )
@@ -436,7 +583,7 @@ class ThumbnailGenerator:
                 icon_bbox = draw.textbbox(
                     (0, 0), "🌧️", font=f_icon
                 )
-                icon_w = icon_bbox[2] - icon_bbox[0]
+                icon_w = icon_bbox[2]-icon_bbox[0]
                 icon_x = W - PAD_X - icon_w
                 draw.text(
                     (icon_x, top_y),
@@ -459,11 +606,9 @@ class ThumbnailGenerator:
             badge_text_h = (
                 badge_bbox[3] - badge_bbox[1]
             )
-            badge_h      = (
-                badge_text_h + badge_pad_y * 2
-            )
-            badge_y      = H - PAD_Y - badge_h
-            badge_x      = PAD_X
+            badge_h = badge_text_h + badge_pad_y * 2
+            badge_y = H - PAD_Y - badge_h
+            badge_x = PAD_X
 
             badges = [
                 (
@@ -497,7 +642,7 @@ class ThumbnailGenerator:
 
                 bw = tw + badge_pad_x * 2
 
-                # Badge shadow
+                # Shadow
                 shadow_img  = Image.new(
                     "RGBA", (W, H), (0, 0, 0, 0)
                 )
@@ -525,13 +670,20 @@ class ThumbnailGenerator:
                 badge_img  = Image.new(
                     "RGBA", (W, H), (0, 0, 0, 0)
                 )
-                badge_draw = ImageDraw.Draw(badge_img)
-
+                badge_draw = ImageDraw.Draw(
+                    badge_img
+                )
                 for gi in range(badge_h):
                     t  = gi / badge_h
-                    gr = int(col1[0]*(1-t)+col2[0]*t)
-                    gg = int(col1[1]*(1-t)+col2[1]*t)
-                    gb = int(col1[2]*(1-t)+col2[2]*t)
+                    gr = int(
+                        col1[0]*(1-t)+col2[0]*t
+                    )
+                    gg = int(
+                        col1[1]*(1-t)+col2[1]*t
+                    )
+                    gb = int(
+                        col1[2]*(1-t)+col2[2]*t
+                    )
                     badge_draw.rectangle(
                         [
                             (badge_x,
@@ -543,9 +695,7 @@ class ThumbnailGenerator:
                     )
 
                 # Clip to rounded rect
-                mask      = Image.new(
-                    "L", (W, H), 0
-                )
+                mask      = Image.new("L",(W,H),0)
                 mask_draw = ImageDraw.Draw(mask)
                 mask_draw.rounded_rectangle(
                     [
@@ -560,8 +710,7 @@ class ThumbnailGenerator:
                     Image.composite(
                         badge_img,
                         Image.new(
-                            "RGBA", (W, H),
-                            (0, 0, 0, 0)
+                            "RGBA",(W,H),(0,0,0,0)
                         ),
                         mask
                     )
@@ -570,21 +719,21 @@ class ThumbnailGenerator:
 
                 # Inner highlight
                 hi_img  = Image.new(
-                    "RGBA", (W, H), (0, 0, 0, 0)
+                    "RGBA", (W,H), (0,0,0,0)
                 )
                 hi_draw = ImageDraw.Draw(hi_img)
                 hi_draw.line(
                     [
                         (
-                            badge_x + badge_radius,
-                            badge_y + 1
+                            badge_x+badge_radius,
+                            badge_y+1
                         ),
                         (
-                            badge_x + bw - badge_radius,
-                            badge_y + 1
+                            badge_x+bw-badge_radius,
+                            badge_y+1
                         )
                     ],
-                    fill  = (255, 255, 255, 38),
+                    fill  = (255,255,255,38),
                     width = 2
                 )
                 img = Image.alpha_composite(
@@ -641,10 +790,12 @@ class ThumbnailGenerator:
             line_h        = int(36 * S * 1.1)
             title_bottom  = badge_y - (10 * S)
             title_total_h = len(lines) * line_h
-            title_y       = title_bottom - title_total_h
+            title_y       = (
+                title_bottom - title_total_h
+            )
 
             for line_text in lines:
-                # Text shadow
+                # Shadow
                 for ox, oy in [
                     (3*S, 3*S),
                     (4*S, 4*S),
@@ -657,13 +808,13 @@ class ThumbnailGenerator:
                         fill = SHADOW
                     )
 
-                # Title glow
+                # Glow
                 glow_img  = Image.new(
-                    "RGBA", (W, H), (0, 0, 0, 0)
+                    "RGBA", (W,H), (0,0,0,0)
                 )
                 glow_draw = ImageDraw.Draw(glow_img)
                 for g in range(1, 12):
-                    alpha = int(128 * (1-g/12))
+                    alpha = int(128*(1-g/12))
                     for gx, gy in [
                         (PAD_X-g, title_y),
                         (PAD_X+g, title_y),
@@ -674,7 +825,9 @@ class ThumbnailGenerator:
                             (gx, gy),
                             line_text,
                             font = f_title,
-                            fill = (30, 80, 180, alpha)
+                            fill = (
+                                30, 80, 180, alpha
+                            )
                         )
 
                 img = Image.alpha_composite(
@@ -682,7 +835,7 @@ class ThumbnailGenerator:
                 ).convert("RGB")
                 draw = ImageDraw.Draw(img)
 
-                # Main title text
+                # Main title
                 draw.text(
                     (PAD_X, title_y),
                     line_text,
@@ -741,10 +894,6 @@ class ThumbnailGenerator:
     # ─────────────────────────────────────
 
     def _font(self, size):
-        """
-        Load Arial Black equivalent
-        Best match: DejaVuSans-Bold
-        """
         paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
