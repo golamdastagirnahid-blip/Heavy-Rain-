@@ -31,13 +31,13 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg
-          echo "✅ FFmpeg: $(ffmpeg -version | head -1)"
+          echo "✅ FFmpeg ready"
 
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          echo "✅ All dependencies installed"
+          echo "✅ Dependencies ready"
 
       - name: Create Credentials
         run: |
@@ -62,23 +62,6 @@ jobs:
             echo "✅ Database exists"
           fi
 
-      - name: Check Daily Limit
-        run: |
-          python3 -c "
-          import json
-          from datetime import datetime
-          with open('database.json') as f:
-              db = json.load(f)
-          today = datetime.now().strftime('%Y-%m-%d')
-          count = db.get('daily_counts', {}).get(today, 0)
-          print(f'📊 Uploads today: {count}/3')
-          if count >= 3:
-              print('✅ Daily limit reached')
-              exit(1)
-          else:
-              print(f'✅ Can upload {3-count} more today')
-          "
-
       - name: Run Upload Bot
         run: python main.py
         env:
@@ -86,12 +69,13 @@ jobs:
           PIXABAY_API_KEY:    ${{ secrets.PIXABAY_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-      - name: Save Database
+      - name: Save State and Database
         if: always()
         run: |
           git config user.name  "automation-bot"
           git config user.email "bot@github.com"
           git add database.json
+          git add state.json || true
           git diff --staged --quiet || \
             git commit -m "Update DB [skip ci]"
           git push || true
@@ -99,7 +83,6 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -rf downloads/audio/   || true
           rm -rf downloads/footage/ || true
           rm -rf output/            || true
           rm -rf thumbnails/        || true
