@@ -2,13 +2,15 @@
     "uploaded_videos": [
         "rain_20260428_113007_part1",
         "rain_20260428_132526_part1",
-        "rain_20260428_210823_part1"
+        "rain_20260428_210823_part1",
+        "rain_20260429_103044_part1"
     ],
     "daily_counts": {
-        "2026-04-28": 3
+        "2026-04-28": 3,
+        "2026-04-29": 1
     },
     "statistics": {
-        "total_uploads": 3
+        "total_uploads": 4
     },
     "last_audio_index": 0,
     "last_footage_url": ""
