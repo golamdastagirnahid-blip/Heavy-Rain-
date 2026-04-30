@@ -1,8 +1,8 @@
 """
 Video Processor
-720p output - faster processing
+720p output - Fast processing
+High quality audio
 No thumbnail embedding
-Optimized FFmpeg settings
 """
 
 import os
@@ -26,6 +26,7 @@ MAX_PART_SECONDS = 4 * 60 * 60
 class VideoProcessor:
 
     def get_duration(self, file_path):
+        """Get duration in seconds"""
         try:
             cmd = [
                 "ffprobe",
@@ -52,10 +53,13 @@ class VideoProcessor:
             return 0
 
     def calculate_parts(self, audio_duration):
-        num_parts = math.ceil(
-            audio_duration / MAX_PART_SECONDS
+        """Calculate number of 4-hour parts"""
+        return max(
+            1,
+            math.ceil(
+                audio_duration / MAX_PART_SECONDS
+            )
         )
-        return max(1, num_parts)
 
     def format_duration(self, seconds):
         hours   = int(seconds // 3600)
@@ -69,13 +73,13 @@ class VideoProcessor:
         output_id,
         start_sec,
         end_sec,
-        thumbnail_path = None  # Not used anymore
+        thumbnail_path = None
     ):
         """
-        Create 720p video by looping footage
-        over audio segment
-        Fastest possible settings
-        No thumbnail embedding
+        Create 720p video
+        Loop footage over audio segment
+        High quality audio
+        Fast processing
         """
         output_path = os.path.join(
             OUTPUT_DIR,
@@ -85,29 +89,23 @@ class VideoProcessor:
         duration = end_sec - start_sec
 
         print(
-            f"   🎥 Creating video: "
+            f"   🎥 Creating: "
             f"{self.format_duration(duration)}"
         )
-        print(f"   📹 Footage : {footage_path}")
-        print(
-            f"   🎵 Audio   : "
-            f"{self.format_duration(start_sec)}"
-            f" → "
-            f"{self.format_duration(end_sec)}"
-        )
-        print(f"   📐 Quality : 720p")
-        print(f"   ⚡ Preset  : ultrafast")
+        print(f"   📐 Quality  : 720p HD")
+        print(f"   🎵 Audio    : 192k HQ")
+        print(f"   ⚡ Speed    : ultrafast")
 
         try:
             cmd = [
                 "ffmpeg",
                 "-y",
 
-                # ── Video input loop forever ──
+                # ── Loop footage ──
                 "-stream_loop", "-1",
                 "-i", footage_path,
 
-                # ── Audio input with offset ──
+                # ── Audio segment ──
                 "-ss", str(int(start_sec)),
                 "-t",  str(int(duration)),
                 "-i",  audio_path,
@@ -116,49 +114,48 @@ class VideoProcessor:
                 "-map", "0:v:0",
                 "-map", "1:a:0",
 
-                # ── Video: 720p ultrafast ──
-                "-c:v",    "libx264",
-                "-preset", "ultrafast",
-                "-tune",   "fastdecode",
-                "-crf",    "30",
+                # ── Video 720p fast ──
+                "-c:v",       "libx264",
+                "-preset",    "ultrafast",
+                "-tune",      "fastdecode",
+                "-crf",       "28",
                 "-vf", (
                     "scale=1280:720:"
-                    "force_original_aspect_ratio=increase,"
+                    "force_original_aspect_ratio"
+                    "=increase,"
                     "crop=1280:720,"
                     "fps=24"
                 ),
                 "-profile:v", "baseline",
                 "-level",     "3.1",
+                "-pix_fmt",   "yuv420p",
 
-                # ── Audio: efficient ──
+                # ── High quality audio ──
                 "-c:a",  "aac",
-                "-b:a",  "96k",
-                "-ar",   "44100",
+                "-b:a",  "192k",
+                "-ar",   "48000",
                 "-ac",   "2",
+                "-profile:a", "aac_low",
 
-                # ── Duration control ──
+                # ── Duration ──
                 "-t",       str(int(duration)),
                 "-shortest",
 
-                # ── No subtitles ──
+                # ── Clean output ──
                 "-sn",
-
-                # ── No metadata ──
                 "-map_metadata", "-1",
-
-                # ── Threading ──
-                "-threads", "0",
+                "-threads",      "0",
 
                 output_path
             ]
 
-            print("   ⚙️ Running FFmpeg...")
+            print("   ⚙️ FFmpeg running...")
 
             result = subprocess.run(
                 cmd,
                 capture_output = True,
                 text           = True,
-                timeout        = 14400  # 4 hours
+                timeout        = 14400
             )
 
             if result.returncode == 0:
@@ -171,21 +168,18 @@ class VideoProcessor:
                         f"{size // 1024 // 1024} MB"
                     )
                     return output_path
-                else:
-                    print(
-                        "   ❌ Output file missing"
-                    )
-                    return None
+                print("   ❌ Output missing")
+                return None
             else:
                 print(
                     f"   ❌ FFmpeg failed:\n"
-                    f"   {result.stderr[-300:]}"
+                    f"{result.stderr[-200:]}"
                 )
                 return None
 
         except subprocess.TimeoutExpired:
-            print("   ❌ FFmpeg timeout (4 hours)")
+            print("   ❌ FFmpeg timeout")
             return None
         except Exception as e:
-            print(f"   ❌ Video error: {e}")
+            print(f"   ❌ Error: {e}")
             return None
