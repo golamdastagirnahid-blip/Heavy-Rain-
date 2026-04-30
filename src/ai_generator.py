@@ -134,7 +134,7 @@ class AIGenerator:
             and total_parts > 1
         ):
             part_info = (
-                f"\n📌 Part {part_num} "
+                f"\nPart {part_num} "
                 f"of {total_parts}\n"
             )
 
@@ -144,7 +144,7 @@ class AIGenerator:
                 f"heavy rain deep sleep video.\n"
                 f"Title: {title}\n"
                 f"Rules:\n"
-                f"- First line: engaging hook\n"
+                f"- First line engaging hook\n"
                 f"- Include sleep benefits\n"
                 f"- Call to action\n"
                 f"- Max 300 words\n"
@@ -165,72 +165,90 @@ class AIGenerator:
         )
 
     def _tags(self):
-        """Comprehensive SEO tags"""
-        high = [
+        """
+        YouTube safe tags
+        No special characters
+        No quotes
+        No angle brackets
+        Max 500 chars total
+        Each tag max 30 chars
+        """
+        tags = [
             "rain sounds",
+            "deep sleep",
+            "heavy rain",
             "sleep music",
             "white noise",
-            "deep sleep",
-            "relaxing music",
-            "meditation music",
-            "study music",
-            "sleep sounds",
-            "nature sounds",
-            "ambient music",
-        ]
-        medium = [
-            "heavy rain sounds",
             "rain sounds for sleeping",
-            "rain sounds 8 hours",
-            "rain on window",
-            "thunderstorm sounds",
-            "rain and thunder",
-            "rain asmr",
+            "heavy rain sounds",
             "sleep aid",
             "insomnia relief",
+            "relaxing rain",
+            "rain asmr",
+            "nature sounds",
+            "ambient sounds",
+            "study music",
+            "meditation music",
+            "thunderstorm sounds",
+            "rain and thunder",
+            "sleep sounds",
             "stress relief",
             "anxiety relief",
-            "relaxation music",
             "focus music",
-            "rain meditation",
+            "relaxation music",
+            "rain on window",
             "heavy rainfall",
-        ]
-        niche = [
-            "heavy rain deep sleep",
-            "rain sounds no music",
-            "rain sounds for studying",
-            "heavy rain white noise",
-            "deep sleep rain",
-            "heavy rain meditation",
-            "peaceful rain sounds",
+            "peaceful rain",
             "gentle rain sounds",
-            "rain sounds healing",
-            "rain sounds focus",
-            "storm sounds sleep",
-            "rain forest sounds",
-            "rain window sleep",
-            "sleep instantly rain",
-            "rain sounds babies",
+            "rain meditation",
+            "sleep instantly",
+            "deep relaxation",
+            "rain white noise",
         ]
 
-        all_tags = high + medium + niche
-        random.shuffle(all_tags)
-        return all_tags[:30]
+        # Validate each tag
+        clean_tags = []
+        total_chars = 0
+
+        for tag in tags:
+            # Remove any special characters
+            clean = tag.strip()
+            clean = clean.replace('"', '')
+            clean = clean.replace("'", '')
+            clean = clean.replace('<', '')
+            clean = clean.replace('>', '')
+            clean = clean.replace('&', 'and')
+
+            # YouTube tag limits
+            if len(clean) > 30:
+                clean = clean[:30]
+
+            if not clean:
+                continue
+
+            # YouTube total tags limit 500 chars
+            if total_chars + len(clean) + 1 > 490:
+                break
+
+            clean_tags.append(clean)
+            total_chars += len(clean) + 1
+
+        return clean_tags
 
     def _hashtags(self):
+        """Plain text hashtags for description"""
         return (
             "#rainsounds #deepsleep #sleepmusic "
             "#heavyrain #whitenoise "
-            "#rainsoundsforsleeping #sleepaid "
-            "#insomnia #relaxingmusic "
-            "#meditationmusic #studymusic "
-            "#asmr #rainasmr #naturalsounds "
-            "#stressrelief #anxietyrelief "
-            "#focusmusic #ambientmusic "
-            "#sleepsounds #rainonwindow "
-            "#thunderstorm #heavyrainfall "
-            "#sleepinstantly #deeprelaxation "
-            "#mindfulness"
+            "#sleepaid #insomnia "
+            "#relaxingmusic #meditationmusic "
+            "#studymusic #rainasmr "
+            "#naturalsounds #stressrelief "
+            "#anxietyrelief #focusmusic "
+            "#ambientmusic #sleepsounds "
+            "#rainonwindow #thunderstorm "
+            "#heavyrainfall #deeprelaxation "
+            "#mindfulness #calmmusic"
         )
 
     def _fallback_title(
@@ -238,17 +256,18 @@ class AIGenerator:
         part_num    = None,
         total_parts = None
     ):
+        """High quality fallback titles"""
         titles = [
-            "🌧️ Heavy Rain Sounds for Deep Sleep | 4 Hours No Ads",
-            "⛈️ Thunderstorm & Heavy Rain | Deep Sleep White Noise",
-            "🌧️ Heavy Rain on Window | Fall Asleep Fast Tonight",
-            "⛈️ Heavy Rainfall Sounds | Deep Sleep & Relaxation",
-            "🌧️ Rain Sounds for Sleeping | Heavy Rain 4 Hours",
-            "🌧️ Heavy Rain White Noise | Sleep Instantly Tonight",
-            "⛈️ Powerful Rain & Thunder | Deep Sleep Sounds",
-            "🌧️ All Night Heavy Rain | Sleep Sounds No Ads",
-            "🌧️ Heavy Rain ASMR | Deep Sleep White Noise",
-            "⛈️ Intense Rain | Insomnia Relief No Ads",
+            "Heavy Rain Sounds for Deep Sleep 4 Hours No Ads",
+            "Thunderstorm Heavy Rain Deep Sleep White Noise",
+            "Heavy Rain on Window Fall Asleep Fast Tonight",
+            "Heavy Rainfall Sounds Deep Sleep Relaxation",
+            "Rain Sounds for Sleeping Heavy Rain 4 Hours",
+            "Heavy Rain White Noise Sleep Instantly Tonight",
+            "Powerful Rain and Thunder Deep Sleep Sounds",
+            "All Night Heavy Rain Sleep Sounds No Ads",
+            "Heavy Rain ASMR Deep Sleep White Noise",
+            "Intense Rain Insomnia Relief No Ads",
         ]
         title = random.choice(titles)
         if (
@@ -258,36 +277,43 @@ class AIGenerator:
         ):
             title = (
                 f"{title} "
-                f"| Part {part_num}/{total_parts}"
+                f"Part {part_num} of {total_parts}"
             )
         return title
 
     def _fallback_desc(self, title, part_info):
-        return f"""🌧️ {title}
-{part_info}
-Experience the ultimate deep sleep with our heavy rain sounds. This powerful rain audio helps you fall asleep fast, stay asleep longer, and wake up refreshed.
-
-💤 WHY HEAVY RAIN WORKS FOR SLEEP:
-Heavy rain creates consistent white noise that blocks distracting sounds. The steady rhythm triggers your brain's relaxation response, lowering cortisol and preparing your body for deep restorative sleep.
-
-✅ PERFECT FOR:
-• Deep Sleep & Insomnia Relief
-• Study & Focus Sessions
-• Meditation & Mindfulness
-• Stress & Anxiety Relief
-• Baby Sleep & Nap Time
-• Background Noise for Work
-• ASMR Relaxation
-
-🎯 BENEFITS:
-→ Fall asleep up to 3x faster
-→ Blocks background noise naturally
-→ Reduces stress and anxiety
-→ Improves sleep quality
-→ No music, no interruptions, no ads
-
-🔔 SUBSCRIBE for daily rain sounds!
-👍 LIKE if this helped you sleep!
-💬 COMMENT your favorite rain sound!
-
-{self._hashtags()}"""
+        """High quality SEO description"""
+        return (
+            f"{title}\n"
+            f"{part_info}\n"
+            f"Experience the ultimate deep sleep "
+            f"with our heavy rain sounds. "
+            f"This powerful rain audio helps you "
+            f"fall asleep fast, stay asleep longer, "
+            f"and wake up completely refreshed.\n\n"
+            f"WHY HEAVY RAIN WORKS FOR SLEEP:\n"
+            f"Heavy rain creates consistent white "
+            f"noise that blocks distracting sounds. "
+            f"The steady rhythm triggers your brain "
+            f"relaxation response, lowering cortisol "
+            f"and preparing your body for deep "
+            f"restorative sleep.\n\n"
+            f"PERFECT FOR:\n"
+            f"Deep Sleep and Insomnia Relief\n"
+            f"Study and Focus Sessions\n"
+            f"Meditation and Mindfulness\n"
+            f"Stress and Anxiety Relief\n"
+            f"Baby Sleep and Nap Time\n"
+            f"Background Noise for Work\n"
+            f"ASMR Relaxation\n\n"
+            f"BENEFITS:\n"
+            f"Fall asleep up to 3x faster\n"
+            f"Blocks background noise naturally\n"
+            f"Reduces stress and anxiety\n"
+            f"Improves sleep quality\n"
+            f"No music no interruptions no ads\n\n"
+            f"Subscribe for daily rain sounds!\n"
+            f"Like if this helped you sleep!\n"
+            f"Comment your favorite rain sound!\n\n"
+            f"{self._hashtags()}"
+        )
