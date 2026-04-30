@@ -2,9 +2,9 @@ name: Rain Sleep Daily Upload
 
 on:
   schedule:
-    - cron: "0 4 * * *"   # 4 AM UTC
-    - cron: "0 12 * * *"  # 12 PM UTC
-    - cron: "0 20 * * *"  # 8 PM UTC
+    - cron: "0 4 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
 jobs:
@@ -59,6 +59,14 @@ jobs:
           else
             echo "✅ Database exists"
           fi
+
+      - name: Cache Audio Files
+        uses: actions/cache@v4
+        with:
+          path: downloads/audio/
+          key: audio-cache-v1
+          restore-keys: |
+            audio-cache-v1
 
       - name: Run Bot
         run: python main.py
