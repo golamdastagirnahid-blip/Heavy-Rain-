@@ -1,11 +1,10 @@
 """
 YouTube Uploader
-Uploads videos with metadata and thumbnails
+Uploads videos with SEO optimized metadata
 """
 
 import os
 import time
-import random
 from googleapiclient.http   import MediaFileUpload
 from googleapiclient.errors import HttpError
 
@@ -20,14 +19,19 @@ class VideoUploader:
         video_path,
         title,
         description,
-        thumbnail_path=None,
-        privacy="public",
-        tags=None
+        tags           = None,
+        thumbnail_path = None,
+        privacy        = "public"
     ):
-        """Upload video to YouTube"""
-
+        """
+        Upload video to YouTube
+        With SEO optimized metadata
+        """
         if not os.path.exists(video_path):
-            print(f"   ❌ Video file not found: {video_path}")
+            print(
+                f"   ❌ Video not found: "
+                f"{video_path}"
+            )
             return None
 
         size = os.path.getsize(video_path)
@@ -36,20 +40,24 @@ class VideoUploader:
             f"{size // 1024 // 1024} MB"
         )
 
-        if tags is None:
+        # Default SEO tags if none provided
+        if not tags:
             tags = [
                 "rain sounds",
                 "deep sleep",
                 "heavy rain",
                 "sleep music",
-                "relaxing rain",
-                "rain asmr",
                 "white noise",
+                "rain sounds for sleeping",
+                "heavy rain sounds",
                 "sleep aid",
                 "insomnia relief",
-                "meditation",
-                "stress relief",
+                "relaxing rain",
+                "rain asmr",
+                "nature sounds",
+                "ambient sounds",
                 "study music",
+                "meditation music",
             ]
 
         body = {
@@ -57,31 +65,36 @@ class VideoUploader:
                 "title"      : title[:100],
                 "description": description[:5000],
                 "tags"       : tags,
-                "categoryId" : "22",  # People & Blogs
+                "categoryId" : "22",
+                "defaultLanguage"      : "en",
+                "defaultAudioLanguage" : "en",
             },
             "status": {
                 "privacyStatus"         : privacy,
                 "selfDeclaredMadeForKids": False,
+                "madeForKids"            : False,
             },
         }
 
         try:
             media = MediaFileUpload(
                 video_path,
-                mimetype    = "video/mp4",
-                resumable   = True,
-                chunksize   = 1024 * 1024 * 10  # 10MB chunks
+                mimetype   = "video/mp4",
+                resumable  = True,
+                chunksize  = 1024 * 1024 * 10
             )
 
             request  = self.youtube.videos().insert(
-                part = "snippet,status",
-                body = body,
+                part       = "snippet,status",
+                body       = body,
                 media_body = media
             )
 
             response = None
             while response is None:
-                status, response = request.next_chunk()
+                status, response = (
+                    request.next_chunk()
+                )
                 if status:
                     progress = int(
                         status.progress() * 100
@@ -93,14 +106,18 @@ class VideoUploader:
 
             video_id  = response["id"]
             video_url = (
-                f"https://www.youtube.com/watch?v={video_id}"
+                f"https://www.youtube.com"
+                f"/watch?v={video_id}"
             )
 
-            print(f"\n   ✅ Uploaded: {video_url}")
+            print(
+                f"\n   ✅ Uploaded: {video_url}"
+            )
 
-            # Set thumbnail
-            if thumbnail_path and os.path.exists(
+            # Set thumbnail if provided
+            if (
                 thumbnail_path
+                and os.path.exists(thumbnail_path)
             ):
                 self._set_thumbnail(
                     video_id, thumbnail_path
@@ -119,7 +136,9 @@ class VideoUploader:
             print(f"   ❌ Upload error: {e}")
             return None
 
-    def _set_thumbnail(self, video_id, thumbnail_path):
+    def _set_thumbnail(
+        self, video_id, thumbnail_path
+    ):
         """Set custom thumbnail"""
         try:
             self.youtube.thumbnails().set(
@@ -129,6 +148,8 @@ class VideoUploader:
                     mimetype="image/jpeg"
                 )
             ).execute()
-            print("   ✅ Thumbnail set")
+            print("   ✅ Thumbnail uploaded")
         except Exception as e:
-            print(f"   ⚠️ Thumbnail error: {e}")
+            print(
+                f"   ⚠️ Thumbnail error: {e}"
+            )
