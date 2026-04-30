@@ -1,6 +1,7 @@
 """
 YouTube Uploader
 SEO optimized metadata upload
+With tag validation
 """
 
 import os
@@ -12,6 +13,53 @@ class VideoUploader:
 
     def __init__(self, youtube):
         self.youtube = youtube
+
+    def _clean_tags(self, tags):
+        """
+        Clean and validate tags for YouTube
+        Remove invalid characters
+        Enforce length limits
+        """
+        if not tags:
+            return []
+
+        clean = []
+        total = 0
+
+        for tag in tags:
+            # Convert to string and strip
+            t = str(tag).strip()
+
+            # Remove invalid chars
+            t = t.replace('"', '')
+            t = t.replace("'", '')
+            t = t.replace('<', '')
+            t = t.replace('>', '')
+            t = t.replace('&', 'and')
+            t = t.replace('\n', ' ')
+            t = t.replace('\r', ' ')
+            t = t.strip()
+
+            # Skip empty tags
+            if not t:
+                continue
+
+            # Max 30 chars per tag
+            if len(t) > 30:
+                t = t[:30].strip()
+
+            # Skip if still empty
+            if not t:
+                continue
+
+            # YouTube 500 char total limit
+            if total + len(t) + 1 > 490:
+                break
+
+            clean.append(t)
+            total += len(t) + 1
+
+        return clean
 
     def upload(
         self,
@@ -36,6 +84,7 @@ class VideoUploader:
             f"{size//1024//1024} MB"
         )
 
+        # Default safe tags
         if not tags:
             tags = [
                 "rain sounds",
@@ -45,11 +94,25 @@ class VideoUploader:
                 "white noise",
             ]
 
+        # Clean and validate tags
+        clean_tags = self._clean_tags(tags)
+        print(
+            f"   🏷️ Tags: {len(clean_tags)}"
+        )
+
+        # Clean title
+        clean_title = str(title).strip()[:100]
+
+        # Clean description
+        clean_desc  = str(
+            description
+        ).strip()[:5000]
+
         body = {
             "snippet": {
-                "title"      : title[:100],
-                "description": description[:5000],
-                "tags"       : tags[:30],
+                "title"      : clean_title,
+                "description": clean_desc,
+                "tags"       : clean_tags,
                 "categoryId" : "22",
                 "defaultLanguage"     : "en",
                 "defaultAudioLanguage": "en",
@@ -92,7 +155,9 @@ class VideoUploader:
                 f"https://www.youtube.com"
                 f"/watch?v={vid_id}"
             )
-            print(f"\n   ✅ Uploaded: {vid_url}")
+            print(
+                f"\n   ✅ Uploaded: {vid_url}"
+            )
 
             # Upload thumbnail
             if (
@@ -110,10 +175,10 @@ class VideoUploader:
             }
 
         except HttpError as e:
-            print(f"   ❌ HTTP: {e}")
+            print(f"   ❌ HTTP Error: {e}")
             return None
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            print(f"   ❌ Upload error: {e}")
             return None
 
     def _thumbnail(self, video_id, path):
