@@ -5,12 +5,12 @@ on:
     - cron: "0 4 * * *"   # 4 AM UTC
     - cron: "0 12 * * *"  # 12 PM UTC
     - cron: "0 20 * * *"  # 8 PM UTC
-  workflow_dispatch:        # Manual trigger
+  workflow_dispatch:
 
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 300
     permissions:
       contents: write
 
@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg
-          echo "✅ FFmpeg ready"
+          echo "✅ FFmpeg: $(ffmpeg -version | head -1)"
 
       - name: Install Dependencies
         run: |
@@ -53,16 +53,14 @@ jobs:
             echo '{
               "uploaded_videos": [],
               "daily_counts": {},
-              "statistics": {"total_uploads": 0},
-              "last_audio_index": 0,
-              "last_footage_url": ""
+              "statistics": {"total_uploads": 0}
             }' > database.json
             echo "✅ Database created"
           else
             echo "✅ Database exists"
           fi
 
-      - name: Run Upload Bot
+      - name: Run Bot
         run: python main.py
         env:
           PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
@@ -75,7 +73,7 @@ jobs:
           git config user.name  "automation-bot"
           git config user.email "bot@github.com"
           git add database.json
-          git add state.json || true
+          git add state.json 2>/dev/null || true
           git diff --staged --quiet || \
             git commit -m "Update DB [skip ci]"
           git push || true
