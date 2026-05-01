@@ -1,7 +1,7 @@
 """
 YouTube Uploader
 Upload first then add tags separately
-Ultra safe tag cleaning
+Debug tag issues
 """
 
 import os
@@ -38,7 +38,7 @@ class VideoUploader:
             f"{size//1024//1024} MB"
         )
 
-        # Clean title - remove emojis
+        # Clean title
         clean_title = re.sub(
             r'[^\x00-\x7F]+', '', str(title)
         ).strip()
@@ -109,7 +109,7 @@ class VideoUploader:
                 f"\n   ✅ Uploaded: {vid_url}"
             )
 
-            # Upload thumbnail first
+            # Upload thumbnail
             if (
                 thumbnail_path
                 and os.path.exists(thumbnail_path)
@@ -118,7 +118,7 @@ class VideoUploader:
                     vid_id, thumbnail_path
                 )
 
-            # Add tags separately after upload
+            # Add tags separately
             self._add_tags(vid_id, tags)
 
             return {
@@ -136,20 +136,19 @@ class VideoUploader:
 
     def _add_tags(self, video_id, tags):
         """
-        Add tags in separate API call
-        Ultra safe tag cleaning
-        Only letters numbers and spaces
-        Matches ai_generator tag rules
+        Add tags one by one to find bad tag
+        Then add all good tags together
         """
         if not tags:
             return
 
         try:
+            # Step 1: Clean all tags
             clean = []
             total = 0
 
             for tag in tags:
-                # Only keep letters numbers spaces
+                # Only letters numbers spaces
                 t = re.sub(
                     r'[^a-zA-Z0-9\s]',
                     '',
@@ -159,20 +158,15 @@ class VideoUploader:
                 # Remove extra spaces
                 t = ' '.join(t.split())
 
-                # Skip empty or too short
                 if not t or len(t) < 2:
                     continue
 
-                # Max 30 chars per tag
                 if len(t) > 30:
                     t = t[:30].strip()
 
-                # Skip duplicates
                 if t in clean:
                     continue
 
-                # YouTube 500 char total limit
-                # Each tag costs len + 1 for comma
                 if total + len(t) + 1 > 490:
                     break
 
@@ -184,35 +178,105 @@ class VideoUploader:
                 return
 
             print(
-                f"   🏷️ Adding {len(clean)} tags "
-                f"({total} chars)..."
+                f"   🏷️ Testing {len(clean)} tags..."
             )
 
-            # Get current video snippet
-            response = self.youtube.videos().list(
-                part = "snippet",
-                id   = video_id
-            ).execute()
+            # Step 2: Find bad tags
+            # Test with small batches of 5
+            good_tags = []
 
-            if not response.get("items"):
-                print("   ⚠️ Video not found")
-                return
+            for i in range(0, len(clean), 5):
+                batch = clean[i:i+5]
 
-            snippet = (
-                response["items"][0]["snippet"]
-            )
-            snippet["tags"] = clean
+                try:
+                    # Get current snippet
+                    resp = self.youtube.videos().list(
+                        part="snippet",
+                        id=video_id
+                    ).execute()
 
-            self.youtube.videos().update(
-                part = "snippet",
-                body = {
-                    "id"     : video_id,
-                    "snippet": snippet
-                }
-            ).execute()
+                    if not resp.get("items"):
+                        return
+
+                    snippet = (
+                        resp["items"][0]["snippet"]
+                    )
+                    snippet["tags"] = (
+                        good_tags + batch
+                    )
+
+                    self.youtube.videos().update(
+                        part="snippet",
+                        body={
+                            "id"     : video_id,
+                            "snippet": snippet
+                        }
+                    ).execute()
+
+                    # Batch is good
+                    good_tags.extend(batch)
+                    print(
+                        f"   ✅ Batch {i//5+1} ok: "
+                        f"{batch}"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"   ⚠️ Batch {i//5+1} "
+                        f"failed: {batch}"
+                    )
+                    print(f"   🔍 Error: {e}")
+
+                    # Try tags one by one
+                    for single_tag in batch:
+                        try:
+                            resp = (
+                                self.youtube
+                                .videos()
+                                .list(
+                                    part="snippet",
+                                    id=video_id
+                                ).execute()
+                            )
+
+                            if not resp.get("items"):
+                                continue
+
+                            snippet = (
+                                resp["items"][0]
+                                ["snippet"]
+                            )
+                            snippet["tags"] = (
+                                good_tags
+                                + [single_tag]
+                            )
+
+                            self.youtube.videos(
+                            ).update(
+                                part="snippet",
+                                body={
+                                    "id": video_id,
+                                    "snippet": snippet
+                                }
+                            ).execute()
+
+                            good_tags.append(
+                                single_tag
+                            )
+                            print(
+                                f"   ✅ Tag ok: "
+                                f"{single_tag}"
+                            )
+
+                        except Exception:
+                            print(
+                                f"   ❌ Bad tag: "
+                                f"{single_tag}"
+                            )
 
             print(
-                f"   ✅ Tags added: {len(clean)}"
+                f"   ✅ Tags done: "
+                f"{len(good_tags)} added"
             )
 
         except Exception as e:
