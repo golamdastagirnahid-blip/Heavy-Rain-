@@ -1,6 +1,7 @@
 """
 YouTube Uploader
 Upload first then add tags separately
+Ultra safe tag cleaning
 """
 
 import os
@@ -108,7 +109,7 @@ class VideoUploader:
                 f"\n   ✅ Uploaded: {vid_url}"
             )
 
-            # Upload thumbnail
+            # Upload thumbnail first
             if (
                 thumbnail_path
                 and os.path.exists(thumbnail_path)
@@ -136,7 +137,9 @@ class VideoUploader:
     def _add_tags(self, video_id, tags):
         """
         Add tags in separate API call
-        after video is uploaded
+        Ultra safe tag cleaning
+        Only letters numbers and spaces
+        Matches ai_generator tag rules
         """
         if not tags:
             return
@@ -146,18 +149,30 @@ class VideoUploader:
             total = 0
 
             for tag in tags:
+                # Only keep letters numbers spaces
                 t = re.sub(
                     r'[^a-zA-Z0-9\s]',
                     '',
                     str(tag)
-                ).strip()
+                ).strip().lower()
 
+                # Remove extra spaces
+                t = ' '.join(t.split())
+
+                # Skip empty or too short
                 if not t or len(t) < 2:
                     continue
 
+                # Max 30 chars per tag
                 if len(t) > 30:
                     t = t[:30].strip()
 
+                # Skip duplicates
+                if t in clean:
+                    continue
+
+                # YouTube 500 char total limit
+                # Each tag costs len + 1 for comma
                 if total + len(t) + 1 > 490:
                     break
 
@@ -165,19 +180,22 @@ class VideoUploader:
                 total += len(t) + 1
 
             if not clean:
+                print("   ⚠️ No valid tags")
                 return
 
             print(
-                f"   🏷️ Adding {len(clean)} tags..."
+                f"   🏷️ Adding {len(clean)} tags "
+                f"({total} chars)..."
             )
 
-            # Get current snippet
+            # Get current video snippet
             response = self.youtube.videos().list(
                 part = "snippet",
                 id   = video_id
             ).execute()
 
             if not response.get("items"):
+                print("   ⚠️ Video not found")
                 return
 
             snippet = (
