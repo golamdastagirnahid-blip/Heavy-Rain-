@@ -1,6 +1,6 @@
 """
 YouTube Uploader
-Upload with no tags to bypass invalid tags error
+Upload first then add tags separately
 """
 
 import os
@@ -37,13 +37,10 @@ class VideoUploader:
             f"{size//1024//1024} MB"
         )
 
-        # Clean title
-        # Remove emojis and special chars
+        # Clean title - remove emojis
         clean_title = re.sub(
             r'[^\x00-\x7F]+', '', str(title)
         ).strip()
-
-        # Remove extra spaces
         clean_title = ' '.join(
             clean_title.split()
         )[:100]
@@ -60,6 +57,7 @@ class VideoUploader:
 
         print(f"   📝 Title: {clean_title}")
 
+        # Upload WITHOUT tags first
         body = {
             "snippet": {
                 "title"      : clean_title,
@@ -119,8 +117,7 @@ class VideoUploader:
                     vid_id, thumbnail_path
                 )
 
-            # Add tags after upload
-            # Separate API call is more reliable
+            # Add tags separately after upload
             self._add_tags(vid_id, tags)
 
             return {
@@ -140,13 +137,11 @@ class VideoUploader:
         """
         Add tags in separate API call
         after video is uploaded
-        More reliable than adding during upload
         """
         if not tags:
             return
 
         try:
-            # Clean tags
             clean = []
             total = 0
 
@@ -176,7 +171,7 @@ class VideoUploader:
                 f"   🏷️ Adding {len(clean)} tags..."
             )
 
-            # Get current video snippet
+            # Get current snippet
             response = self.youtube.videos().list(
                 part = "snippet",
                 id   = video_id
@@ -185,7 +180,9 @@ class VideoUploader:
             if not response.get("items"):
                 return
 
-            snippet = response["items"][0]["snippet"]
+            snippet = (
+                response["items"][0]["snippet"]
+            )
             snippet["tags"] = clean
 
             self.youtube.videos().update(
