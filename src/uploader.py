@@ -1,10 +1,11 @@
 """
 YouTube Uploader
 SEO optimized metadata upload
-With tag validation
+With strict tag validation
 """
 
 import os
+import re
 from googleapiclient.http   import MediaFileUpload
 from googleapiclient.errors import HttpError
 
@@ -16,9 +17,8 @@ class VideoUploader:
 
     def _clean_tags(self, tags):
         """
-        Clean and validate tags for YouTube
-        Remove invalid characters
-        Enforce length limits
+        Strictly clean tags for YouTube API
+        Very strict validation
         """
         if not tags:
             return []
@@ -27,38 +27,42 @@ class VideoUploader:
         total = 0
 
         for tag in tags:
-            # Convert to string and strip
+            # Convert to string
             t = str(tag).strip()
 
-            # Remove invalid chars
-            t = t.replace('"', '')
-            t = t.replace("'", '')
-            t = t.replace('<', '')
-            t = t.replace('>', '')
-            t = t.replace('&', 'and')
-            t = t.replace('\n', ' ')
-            t = t.replace('\r', ' ')
+            # Keep only letters numbers
+            # spaces and hyphens
+            t = re.sub(
+                r'[^a-zA-Z0-9\s\-]', '', t
+            )
             t = t.strip()
 
-            # Skip empty tags
+            # Skip empty
             if not t:
                 continue
 
-            # Max 30 chars per tag
+            # Skip too short
+            if len(t) < 2:
+                continue
+
+            # Max 30 chars
             if len(t) > 30:
                 t = t[:30].strip()
 
-            # Skip if still empty
+            # Skip if empty after trim
             if not t:
                 continue
 
-            # YouTube 500 char total limit
-            if total + len(t) + 1 > 490:
+            # Check total length
+            if total + len(t) + 1 > 450:
                 break
 
             clean.append(t)
             total += len(t) + 1
 
+        print(
+            f"   🏷️ Valid tags: {len(clean)}"
+        )
         return clean
 
     def upload(
@@ -84,7 +88,7 @@ class VideoUploader:
             f"{size//1024//1024} MB"
         )
 
-        # Default safe tags
+        # Safe default tags
         if not tags:
             tags = [
                 "rain sounds",
@@ -94,19 +98,29 @@ class VideoUploader:
                 "white noise",
             ]
 
-        # Clean and validate tags
+        # Strictly clean tags
         clean_tags = self._clean_tags(tags)
-        print(
-            f"   🏷️ Tags: {len(clean_tags)}"
-        )
 
-        # Clean title
-        clean_title = str(title).strip()[:100]
+        # Clean title - remove emojis
+        clean_title = re.sub(
+            r'[^\x00-\x7F]+', '', str(title)
+        ).strip()[:100]
+
+        # If title empty after cleaning use default
+        if not clean_title:
+            clean_title = (
+                "Heavy Rain Sounds for Deep Sleep"
+            )
 
         # Clean description
-        clean_desc  = str(
+        clean_desc = str(
             description
         ).strip()[:5000]
+
+        print(f"   📝 Title: {clean_title}")
+        print(
+            f"   🏷️ Tags : {len(clean_tags)}"
+        )
 
         body = {
             "snippet": {
@@ -132,7 +146,7 @@ class VideoUploader:
                 chunksize = 1024*1024*10
             )
 
-            req  = self.youtube.videos().insert(
+            req = self.youtube.videos().insert(
                 part       = "snippet,status",
                 body       = body,
                 media_body = media
@@ -176,6 +190,10 @@ class VideoUploader:
 
         except HttpError as e:
             print(f"   ❌ HTTP Error: {e}")
+            # Print exact tags for debugging
+            print(
+                f"   🔍 Tags sent: {clean_tags}"
+            )
             return None
         except Exception as e:
             print(f"   ❌ Upload error: {e}")
