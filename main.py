@@ -25,7 +25,7 @@ from src.auth                import YouTubeAuth
 from src.uploader            import VideoUploader
 
 
-MAX_PART_SECONDS = 4 * 60 * 60
+MAX_PART_SECONDS = 2 * 60 * 60
 
 STATE_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
