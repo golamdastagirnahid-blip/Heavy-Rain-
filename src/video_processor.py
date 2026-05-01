@@ -1,8 +1,8 @@
 """
 Video Processor
-720p output - Fast processing
-High quality audio
-No thumbnail embedding
+720p output - Memory optimized
+Prevents GitHub Actions runner crash
+High quality audio 192k
 """
 
 import os
@@ -53,7 +53,7 @@ class VideoProcessor:
             return 0
 
     def calculate_parts(self, audio_duration):
-        """Calculate number of 4-hour parts"""
+        """Calculate number of parts"""
         return max(
             1,
             math.ceil(
@@ -62,9 +62,9 @@ class VideoProcessor:
         )
 
     def format_duration(self, seconds):
-        hours   = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        return f"{hours}h {minutes}m"
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        return f"{h}h {m}m"
 
     def create_video(
         self,
@@ -77,9 +77,8 @@ class VideoProcessor:
     ):
         """
         Create 720p video
-        Loop footage over audio segment
-        High quality audio
-        Fast processing
+        Memory optimized for GitHub Actions
+        Max 7GB RAM available
         """
         output_path = os.path.join(
             OUTPUT_DIR,
@@ -95,6 +94,7 @@ class VideoProcessor:
         print(f"   📐 Quality  : 720p HD")
         print(f"   🎵 Audio    : 192k HQ")
         print(f"   ⚡ Speed    : ultrafast")
+        print(f"   💾 Mode     : memory optimized")
 
         try:
             cmd = [
@@ -114,11 +114,13 @@ class VideoProcessor:
                 "-map", "0:v:0",
                 "-map", "1:a:0",
 
-                # ── Video 720p fast ──
+                # ── Video 720p ──
+                # ultrafast + lower quality
+                # = less CPU and RAM usage
                 "-c:v",       "libx264",
                 "-preset",    "ultrafast",
                 "-tune",      "fastdecode",
-                "-crf",       "28",
+                "-crf",       "32",
                 "-vf", (
                     "scale=1280:720:"
                     "force_original_aspect_ratio"
@@ -130,26 +132,38 @@ class VideoProcessor:
                 "-level",     "3.1",
                 "-pix_fmt",   "yuv420p",
 
+                # ── Memory limits ──
+                # Limit thread memory usage
+                "-threads",    "2",
+                "-thread_type","slice",
+
                 # ── High quality audio ──
-                "-c:a",  "aac",
-                "-b:a",  "192k",
-                "-ar",   "48000",
-                "-ac",   "2",
-                "-profile:a", "aac_low",
+                "-c:a",       "aac",
+                "-b:a",       "192k",
+                "-ar",        "48000",
+                "-ac",        "2",
 
                 # ── Duration ──
-                "-t",       str(int(duration)),
+                "-t",         str(int(duration)),
                 "-shortest",
 
                 # ── Clean output ──
                 "-sn",
                 "-map_metadata", "-1",
-                "-threads",      "0",
+
+                # ── Buffer size limit ──
+                "-bufsize",   "1M",
+                "-maxrate",   "2M",
 
                 output_path
             ]
 
             print("   ⚙️ FFmpeg running...")
+            print(
+                f"   ⏳ Est time: "
+                f"~{int(duration/3600)*20}-"
+                f"{int(duration/3600)*40} min"
+            )
 
             result = subprocess.run(
                 cmd,
@@ -173,12 +187,12 @@ class VideoProcessor:
             else:
                 print(
                     f"   ❌ FFmpeg failed:\n"
-                    f"{result.stderr[-200:]}"
+                    f"{result.stderr[-300:]}"
                 )
                 return None
 
         except subprocess.TimeoutExpired:
-            print("   ❌ FFmpeg timeout")
+            print("   ❌ FFmpeg timeout 4h")
             return None
         except Exception as e:
             print(f"   ❌ Error: {e}")
