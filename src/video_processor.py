@@ -3,6 +3,7 @@ Video Processor
 720p output - Memory optimized
 Prevents GitHub Actions runner crash
 High quality audio 192k
+2 hour parts max
 """
 
 import os
@@ -20,7 +21,9 @@ OUTPUT_DIR = os.path.join(
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MAX_PART_SECONDS = 4 * 60 * 60
+# 2 hours max per part
+# Prevents GitHub Actions memory crash
+MAX_PART_SECONDS = 2 * 60 * 60
 
 
 class VideoProcessor:
@@ -53,7 +56,9 @@ class VideoProcessor:
             return 0
 
     def calculate_parts(self, audio_duration):
-        """Calculate number of parts"""
+        """
+        Calculate number of 2-hour parts
+        """
         return max(
             1,
             math.ceil(
@@ -78,7 +83,8 @@ class VideoProcessor:
         """
         Create 720p video
         Memory optimized for GitHub Actions
-        Max 7GB RAM available
+        2 hour parts
+        High quality audio 192k
         """
         output_path = os.path.join(
             OUTPUT_DIR,
@@ -95,13 +101,14 @@ class VideoProcessor:
         print(f"   🎵 Audio    : 192k HQ")
         print(f"   ⚡ Speed    : ultrafast")
         print(f"   💾 Mode     : memory optimized")
+        print(f"   🧵 Threads  : 2")
 
         try:
             cmd = [
                 "ffmpeg",
                 "-y",
 
-                # ── Loop footage ──
+                # ── Loop footage forever ──
                 "-stream_loop", "-1",
                 "-i", footage_path,
 
@@ -115,8 +122,6 @@ class VideoProcessor:
                 "-map", "1:a:0",
 
                 # ── Video 720p ──
-                # ultrafast + lower quality
-                # = less CPU and RAM usage
                 "-c:v",       "libx264",
                 "-preset",    "ultrafast",
                 "-tune",      "fastdecode",
@@ -133,7 +138,6 @@ class VideoProcessor:
                 "-pix_fmt",   "yuv420p",
 
                 # ── Memory limits ──
-                # Limit thread memory usage
                 "-threads",    "2",
                 "-thread_type","slice",
 
@@ -143,7 +147,7 @@ class VideoProcessor:
                 "-ar",        "48000",
                 "-ac",        "2",
 
-                # ── Duration ──
+                # ── Duration control ──
                 "-t",         str(int(duration)),
                 "-shortest",
 
@@ -151,7 +155,7 @@ class VideoProcessor:
                 "-sn",
                 "-map_metadata", "-1",
 
-                # ── Buffer size limit ──
+                # ── Buffer limits ──
                 "-bufsize",   "1M",
                 "-maxrate",   "2M",
 
@@ -161,8 +165,8 @@ class VideoProcessor:
             print("   ⚙️ FFmpeg running...")
             print(
                 f"   ⏳ Est time: "
-                f"~{int(duration/3600)*20}-"
-                f"{int(duration/3600)*40} min"
+                f"~{max(1, int(duration/3600))*15}-"
+                f"{max(1, int(duration/3600))*25} min"
             )
 
             result = subprocess.run(
