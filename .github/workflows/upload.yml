@@ -1,10 +1,10 @@
-name: Rain Sleep Daily Upload
+name: Rain Sleep Weekly Upload (4/week, self-scheduled)
 
 on:
   schedule:
-    - cron: "0 4 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 20 * * *"
+    # Hourly check. The bot itself decides whether it is time to post.
+    # Target frequency: 4 posts per week (random 36-48h gap between posts).
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -82,6 +82,7 @@ jobs:
           git config user.email "bot@github.com"
           git add database.json
           git add state.json 2>/dev/null || true
+          git add schedule.json 2>/dev/null || true
           git diff --staged --quiet || \
             git commit -m "Update DB [skip ci]"
           git push || true

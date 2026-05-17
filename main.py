@@ -1,10 +1,12 @@
 """
 Heavy Rain Deep Sleep - YouTube Automation
 ONE PART PER TRIGGER
-Remembers audio cut position between triggers
-Random delay: 5-30 minutes
-High quality audio: 192k
-720p video output
+Self-scheduled: 4 posts per week (random 36-48h gap).
+The workflow runs hourly, but this script exits immediately
+unless the stored next_run time has been reached.
+After every successful upload it picks a NEW random next_run.
+Remembers audio cut position between triggers.
+High quality audio: 192k, 720p video output.
 """
 
 import os
@@ -13,7 +15,7 @@ import time
 import random
 import glob
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from src.database            import Database
 from src.audio_loader        import AudioLoader
@@ -27,10 +29,15 @@ from src.uploader            import VideoUploader
 
 MAX_PART_SECONDS = 2 * 60 * 60
 
-STATE_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "state.json"
-)
+# 4 posts per week = ~42h average gap.
+# Random window 36-48h keeps ~4/week and varies times of day.
+MIN_GAP_HOURS = 36
+MAX_GAP_HOURS = 48
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+STATE_FILE = os.path.join(BASE_DIR, "state.json")
+SCHEDULE_FILE = os.path.join(BASE_DIR, "schedule.json")
 
 
 def format_duration(seconds):
@@ -39,19 +46,70 @@ def format_duration(seconds):
     return f"{h}h {m}m"
 
 
-def humanize_start():
-    """Random delay 5-30 minutes"""
-    wait = random.randint(5, 30)
-    print(f"⏰ Random delay: {wait} minutes")
-    print(
-        f"   Start time: "
-        f"{datetime.now().strftime('%H:%M:%S')}"
+def load_schedule():
+    """Load next scheduled run time (if any)."""
+    if os.path.exists(SCHEDULE_FILE):
+        try:
+            with open(SCHEDULE_FILE, "r") as f:
+                data = json.load(f)
+            return data
+        except Exception:
+            return None
+    return None
+
+
+def save_schedule(next_run_dt):
+    """Persist the next run time to schedule.json."""
+    data = {
+        "next_run": next_run_dt.isoformat(timespec="seconds"),
+        "set_at":   datetime.now().isoformat(timespec="seconds"),
+        "policy":   f"random {MIN_GAP_HOURS}-{MAX_GAP_HOURS}h gap (~4 posts/week)",
+    }
+    with open(SCHEDULE_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+    print(f"   📅 Next run scheduled: {data['next_run']}")
+
+
+def pick_next_run():
+    """Pick a random next-run datetime AFTER an upload finishes.
+
+    Random minutes inside [MIN_GAP_HOURS, MAX_GAP_HOURS] from now,
+    so each post independently chooses its own next slot.
+    """
+    minutes = random.randint(
+        MIN_GAP_HOURS * 60,
+        MAX_GAP_HOURS * 60,
     )
-    time.sleep(wait * 60)
+    return datetime.now() + timedelta(minutes=minutes)
+
+
+def should_run_now():
+    """Return True if the scheduled time has been reached.
+
+    If no schedule exists yet (first ever run), run immediately
+    and a schedule will be created after the upload.
+    """
+    sched = load_schedule()
+    if not sched or "next_run" not in sched:
+        print("📅 No schedule found → running now (first run)")
+        return True
+    try:
+        next_run = datetime.fromisoformat(sched["next_run"])
+    except Exception:
+        print("📅 Schedule unreadable → running now")
+        return True
+    now = datetime.now()
+    if now >= next_run:
+        print(f"📅 Scheduled time reached ({sched['next_run']}) → running")
+        return True
+    remaining = next_run - now
+    hrs = int(remaining.total_seconds() // 3600)
+    mins = int((remaining.total_seconds() % 3600) // 60)
     print(
-        f"   ✅ Running now: "
-        f"{datetime.now().strftime('%H:%M:%S')}"
+        f"⏳ Not yet. Next run at {sched['next_run']} "
+        f"(in {hrs}h {mins}m). Exiting."
     )
+    return False
 
 
 def load_state():
@@ -89,8 +147,9 @@ def main():
     print("   Mode: 1 Part Per Trigger")
     print("=" * 60)
 
-    # ── Random delay 5-30 min ──
-    humanize_start()
+    # ── Self-scheduling gate ──
+    if not should_run_now():
+        return
 
     print(
         f"\n🕐 Actual start: "
@@ -106,13 +165,9 @@ def main():
     thumb_gen = ThumbnailGenerator()
     auth      = YouTubeAuth()
 
-    # ── Daily limit check ──
+    # ── Stats (frequency now controlled by schedule.json) ──
     today_count = db.get_today_count()
-    print(f"\n📊 Today: {today_count}/3 uploads")
-
-    if today_count >= 3:
-        print("✅ Daily limit reached")
-        return
+    print(f"\n📊 Today: {today_count} uploads (target ~4/week)")
 
     # ── Auth YouTube ──
     youtube = auth.authenticate()
@@ -333,7 +388,9 @@ def main():
         privacy        = "public",
     )
 
-    if result and result.get("success"):
+    upload_ok = bool(result and result.get("success"))
+
+    if upload_ok:
         print(
             f"\n✅ UPLOADED: {result['url']}"
         )
@@ -349,6 +406,14 @@ def main():
         )
     else:
         print("\n❌ Upload failed!")
+
+    # ════════════════════════════════════
+    # SCHEDULE NEXT RUN (independent random pick)
+    # Only after a successful upload — failed runs
+    # will retry on the next hourly trigger.
+    # ════════════════════════════════════
+    if upload_ok:
+        save_schedule(pick_next_run())
 
     # ════════════════════════════════════
     # SAVE STATE FOR NEXT TRIGGER
@@ -443,7 +508,7 @@ def main():
         f"{stats.get('total_uploads',0)}"
     )
     print(
-        f"📅 Today: {db.get_today_count()}/3"
+        f"📅 Today: {db.get_today_count()} (target ~4/week)"
     )
 
     remaining = load_state()
